@@ -4,13 +4,13 @@ After=network.target postgresql.service
 
 [Service]
 Type=simple
-WorkingDirectory=/home/ubuntu/CorretorCenter
-EnvironmentFile=/home/ubuntu/CorretorCenter/.env
-ExecStart=/usr/bin/node /home/ubuntu/CorretorCenter/app/server.js
+WorkingDirectory=/home/opc/CorretorCenter
+EnvironmentFile=/home/opc/CorretorCenter/.env
+ExecStart=/usr/bin/node /home/opc/CorretorCenter/app/server.js
 Restart=always
 RestartSec=5
-User=ubuntu
-Group=ubuntu
+User=opc
+Group=opc
 
 [Install]
 WantedBy=multi-user.target

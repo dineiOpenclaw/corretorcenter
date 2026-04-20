@@ -10,7 +10,7 @@ Atualizar o sistema com o menor risco possível, reduzindo trabalho manual e man
 
 ## O que o script faz
 - compara arquivos relevantes com a última atualização registrada
-- avisa quando detecta mudança em dependências, nginx/setup, service ou backend principal
+- avisa quando detecta mudança em dependências, caddy/setup, service ou backend principal
 - cria backup do projeto antes da atualização
 - roda `npm install`
 - roda migrations

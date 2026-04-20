@@ -111,10 +111,7 @@ watched = [
     'package-lock.json',
     'app/server.js',
     'deploy/corretorcenter.service.example',
-    'deploy/nginx.corretorcenter.example.conf',
-    'deploy/nginx.panel-setup.example.conf',
-    'deploy/nginx.multi-domain-setup.example.conf',
-    'deploy/nginx.multi-domain-ssl.example.conf',
+    'deploy/caddy.example.conf',
     'scripts/install-wizard.sh',
     'scripts/update-assisted.sh',
     '.env.example',
@@ -165,8 +162,8 @@ print_change_summary() {
     echo "Aviso: houve mudança de dependências Node. npm install é especialmente importante nesta atualização."
   fi
   if printf '%s
-' "${changed_files[@]}" | grep -Eq '^(deploy/.*nginx.*|scripts/install-wizard.sh|\.env.example)$'; then
-    echo "Aviso: houve mudança relacionada a nginx/setup. Revise publicação, SSL e templates antes de encerrar."
+' "${changed_files[@]}" | grep -Eq '^(deploy/.*caddy.*|scripts/install-wizard.sh|\.env.example)$'; then
+    echo "Aviso: houve mudança relacionada a Caddy/setup. Revise publicação e templates antes de encerrar."
   fi
   if printf '%s
 ' "${changed_files[@]}" | grep -Eq '^(deploy/corretorcenter.service.example)$'; then
@@ -251,5 +248,5 @@ Próximos passos recomendados:
 2. Validar cadastro/edição de imóvel e cliente
 3. Validar formulário público
 4. Validar galeria e imagens públicas
-5. Se houve alteração de nginx/SSL, validar também os hosts publicados
+5. Se houve alteração de Caddy/HTTPS, validar também os hosts publicados
 EOF

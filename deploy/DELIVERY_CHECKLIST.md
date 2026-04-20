@@ -23,7 +23,7 @@ Preencher em conjunto com os campos salvos em `Configurações do sistema` e no 
 - Domínio das imagens:
 - Banco criado:
 - Service publicado:
-- Nginx publicado:
+- Caddy publicado:
 - SSL publicado:
 
 ## Versão entregue

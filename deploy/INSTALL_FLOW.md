@@ -5,7 +5,7 @@
 ### 1. Preparar a VPS
 - instalar Node.js 20+
 - instalar PostgreSQL 14+
-- instalar Nginx
+- instalar Caddy, ou deixar o assistente baixar o binário oficial se o pacote não existir
 - garantir `psql` disponível
 
 ### 2. Copiar o projeto
@@ -22,7 +22,7 @@ Exemplo lógico:
 - senha forte
 
 ### 4. Ajustar `.env`
-No diretório do projeto:
+No diretório do projeto, já considerando os subdomínios desta VPS:
 
 ```bash
 cp .env.example .env
@@ -30,7 +30,7 @@ nano .env
 ```
 
 Revisar no mínimo:
-- domínios
+- domínios, com padrão `*1.codeflowsoluctions.com` nesta VPS
 - credenciais do banco
 - usuário/senha do painel
 - nome interno e nome público do sistema
@@ -73,23 +73,23 @@ O assistente também pode:
 - gerar automaticamente `deploy/corretorcenter.generated.service`
 - publicar o service quando o usuário confirmar
 
-### 9. Publicar nginx
+### 9. Publicar caddy
 Usar:
-- `deploy/nginx.corretorcenter.example.conf`
-- `deploy/nginx.panel-setup.example.conf`
-- `deploy/nginx.multi-domain-ssl.example.conf`
+- `deploy/caddy.corretorcenter.example.conf`
+- `deploy/caddy.panel-setup.example.conf`
+- `deploy/caddy.multi-domain-ssl.example.conf`
 
 O assistente também pode:
-- gerar automaticamente `deploy/nginx.panel-setup.generated.conf`
-- gerar automaticamente `deploy/nginx.multi-domain-setup.generated.conf` com blocos separados por host, limites básicos de upload e cache para imagens
-- gerar automaticamente `deploy/nginx.multi-domain-ssl.generated.conf` como base final HTTPS preenchida
-- publicar a config inicial simples ou multi-domain quando nginx estiver disponível e o usuário confirmar
+- gerar automaticamente `deploy/caddy.panel-setup.generated.conf`
+- gerar automaticamente `deploy/caddy.multi-domain-setup.generated.conf` com blocos separados por host, limites básicos de upload e cache para imagens
+- gerar automaticamente `deploy/caddy.multi-domain-ssl.generated.conf` como base final HTTPS preenchida
+- publicar a config inicial simples ou multi-domain quando caddy estiver disponível e o usuário confirmar
 
 ### 10. Emitir SSL
-O assistente já prepara a próxima etapa e mostra o comando sugerido para painel, formulário, galeria e imagens.
-Quando nginx e certbot estiverem disponíveis, ele também pode tentar emitir o SSL automaticamente com confirmação do usuário, considerando se a config publicada foi a simples ou a multi-domain.
-Depois disso, usar `deploy/nginx.multi-domain-ssl.example.conf` como base final do deploy HTTPS.
-Quando o SSL for emitido com sucesso no fluxo multi-domain, o wizard já pode aplicar automaticamente a versão preenchida `deploy/nginx.multi-domain-ssl.generated.conf`.
+O assistente já prepara a próxima etapa e mostra o comando sugerido para painel, formulário, galeria, imagens, files e api, todos com sufixo 1 nesta VPS.
+Quando Caddy estiver disponível, ele também pode tentar publicar o HTTPS automaticamente com confirmação do usuário.
+Depois disso, usar `deploy/caddy.multi-domain-ssl.example.conf` como base final do deploy HTTPS.
+Quando o SSL for emitido com sucesso no fluxo multi-domain, o wizard já pode aplicar automaticamente a versão preenchida `deploy/caddy.multi-domain-ssl.generated.conf`.
 
 ### 11. Rodar checklist final
 Usar:

@@ -4,7 +4,7 @@
 - [ ] projeto copiado para a VPS
 - [ ] Node.js instalado
 - [ ] PostgreSQL instalado
-- [ ] Nginx instalado
+- [ ] Caddy instalado, por pacote ou binário oficial
 - [ ] `psql` disponível no host
 
 ## 2. Banco
@@ -28,12 +28,12 @@
 - [ ] `systemctl daemon-reload`
 - [ ] `systemctl enable --now corretorcenter`
 
-## 6. Nginx
+## 6. Caddy
 - [ ] backup da config antes de alterar
-- [ ] `deploy/nginx.corretorcenter.example.conf` adaptado para os domínios reais
+- [ ] `deploy/caddy.corretorcenter.example.conf` adaptado para os domínios reais desta VPS
 - [ ] site habilitado
-- [ ] `nginx -t`
-- [ ] `systemctl reload nginx`
+- [ ] `caddy -t`
+- [ ] `systemctl reload caddy`
 
 ## 7. SSL
 - [ ] certificados emitidos

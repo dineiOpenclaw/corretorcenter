@@ -10,7 +10,7 @@ Transformar o produto em algo mais amigável para usuário leigo, com menos term
 - verificação de ambiente
 - sugestão/instalação de dependências
 - geração de arquivos iniciais
-- preparação de nginx e SSL
+- preparação de Caddy/HTTPS
 
 ### 2. Configuração guiada no painel
 - página `Configurações do sistema`

@@ -326,8 +326,13 @@ async function carregarCategoriasAtivas() {
 }
 
 function auth(req, res, next) {
+  const panelUser = String(process.env.PANEL_ADMIN_USER || '').trim();
+  const panelPass = String(process.env.PANEL_ADMIN_PASSWORD || '').trim();
+  if (!panelUser || !panelPass) {
+    return res.status(500).send('Credenciais do painel não configuradas. Defina PANEL_ADMIN_USER e PANEL_ADMIN_PASSWORD antes de subir o app.');
+  }
   const user = basicAuth(req);
-  if (!user || user.name !== process.env.PANEL_ADMIN_USER || user.pass !== process.env.PANEL_ADMIN_PASSWORD) {
+  if (!user || user.name !== panelUser || user.pass !== panelPass) {
     res.set('WWW-Authenticate', `Basic realm="${getBasicAuthRealm()}"`);
     return res.status(401).send(getAuthRequiredMessage());
   }
@@ -432,10 +437,7 @@ async function montarStatusManutencaoSistema() {
   const fileExists = (relativePath) => fs.existsSync(path.join(rootDir, relativePath));
   const generatedFiles = [
     'deploy/corretorcenter.generated.service',
-    'deploy/nginx.panel-setup.generated.conf',
-    'deploy/nginx.multi-domain-setup.generated.conf',
-    'deploy/nginx.multi-domain-ssl.generated.conf',
-    'scripts/update-assisted.sh',
+                'scripts/update-assisted.sh',
     'deploy/UPDATE_FLOW.md',
     '.update-manifest.json',
   ].map((relativePath) => ({
@@ -449,10 +451,7 @@ async function montarStatusManutencaoSistema() {
   const galleryDomain = String(process.env.GALLERY_DOMAIN || '').trim();
   const imagesDomain = String(process.env.IMAGES_DOMAIN || '').trim();
   const servicePublished = fs.existsSync('/etc/systemd/system/corretorcenter.service');
-  const nginxSimplePublished = fs.existsSync('/etc/nginx/sites-available/corretorcenter-panel-setup.conf');
-  const nginxMultiPublished = fs.existsSync('/etc/nginx/sites-available/corretorcenter-multi-domain-setup.conf');
-  const sslGenerated = fileExists('deploy/nginx.multi-domain-ssl.generated.conf');
-  const domainsReady = Boolean(panelDomain && formDomain && galleryDomain && imagesDomain);
+        const domainsReady = Boolean(panelDomain && formDomain && galleryDomain && imagesDomain);
   let updateManifest = null;
   try {
     updateManifest = JSON.parse(fs.readFileSync(path.join(rootDir, '.update-manifest.json'), 'utf8'));
@@ -475,7 +474,7 @@ async function montarStatusManutencaoSistema() {
   const changeGroups = [
     { label: 'Dependências', ok: detectedChanges.some((item) => item === 'package.json' || item === 'package-lock.json') },
     { label: 'Backend', ok: detectedChanges.includes('app/server.js') },
-    { label: 'Nginx / setup', ok: detectedChanges.some((item) => item.includes('nginx') || item === 'scripts/install-wizard.sh' || item === '.env.example') },
+    { label: 'Caddy / setup', ok: detectedChanges.some((item) => item.includes('caddy') || item === 'scripts/install-wizard.sh' || item === '.env.example') },
     { label: 'Service', ok: detectedChanges.includes('deploy/corretorcenter.service.example') },
     { label: 'Update assistido', ok: detectedChanges.includes('scripts/update-assisted.sh') },
   ];
@@ -510,9 +509,6 @@ async function montarStatusManutencaoSistema() {
     imagesDomain,
     domainsReady,
     servicePublished,
-    nginxSimplePublished,
-    nginxMultiPublished,
-    sslGenerated,
     appOk: true,
     dbOk,
     dbError,
@@ -662,7 +658,7 @@ function maintenanceActionSteps(action) {
     'regenerar-artefatos': [
       'Ler configuração atual',
       'Gerar arquivos do setup',
-      'Atualizar artefatos do painel e nginx',
+      'Atualizar artefatos do painel e Caddy',
     ],
     'rodar-update': [
       'Criar backup de segurança',
@@ -1054,6 +1050,9 @@ app.get('/health', async (req, res) => {
   }
 });
 
+const mediaRoot = path.resolve(process.env.MEDIA_ROOT || path.join(__dirname, '..', 'storage', 'images'));
+fs.mkdirSync(mediaRoot, { recursive: true });
+app.use('/files', express.static(mediaRoot));
 app.use('/painel', auth);
 app.get('/', (req, res) => {
   const host = String(req.headers.host || '').toLowerCase();
@@ -1656,8 +1655,8 @@ app.get('/painel/manutencao', auth, async (req, res) => {
           <h3 style="margin-top:0;">Status operacional</h3>
           <div class="maintenance-list">
             <div class="maintenance-item"><strong>Serviço principal instalado</strong><span class="match-badge ${status.servicePublished ? 'match-alto' : 'match-baixo'}">${status.servicePublished ? 'pronto' : 'não encontrado'}</span></div>
-            <div class="maintenance-item"><strong>Publicação básica do painel</strong><span class="match-badge ${status.nginxSimplePublished ? 'match-alto' : 'match-baixo'}">${status.nginxSimplePublished ? 'pronta' : 'não encontrada'}</span></div>
-            <div class="maintenance-item"><strong>Publicação completa dos domínios</strong><span class="match-badge ${status.nginxMultiPublished ? 'match-alto' : 'match-baixo'}">${status.nginxMultiPublished ? 'pronta' : 'não encontrada'}</span></div>
+            <div class="maintenance-item"><strong>Publicação Caddy básica</strong><span class="match-badge ${status.caddyPublished ? 'match-alto' : 'match-baixo'}">${status.caddyPublished ? 'pronta' : 'não encontrada'}</span></div>
+            <div class="maintenance-item"><strong>Publicação Caddy completa</strong><span class="match-badge ${status.caddyMultiPublished ? 'match-alto' : 'match-baixo'}">${status.caddyMultiPublished ? 'pronta' : 'não encontrada'}</span></div>
             <div class="maintenance-item"><strong>Arquivo final de segurança HTTPS</strong><span class="match-badge ${status.sslGenerated ? 'match-alto' : 'match-baixo'}">${status.sslGenerated ? 'pronto' : 'pendente'}</span></div>
             <div class="maintenance-item"><strong>Endereços principais preenchidos</strong><span class="match-badge ${status.domainsReady ? 'match-alto' : 'match-baixo'}">${status.domainsReady ? 'ok' : 'pendente'}</span></div>
           </div>
@@ -2236,6 +2235,22 @@ function montarLinkGaleriaImovel(codigo) {
   const baseUrl = getGalleryBaseUrl();
   if (!baseUrl) return `/imovel/${encodeURIComponent(String(codigo || '').trim())}/galeria`;
   return `${baseUrl}/imovel/${encodeURIComponent(String(codigo || '').trim())}/galeria`;
+}
+
+function montarUrlImagemPublica(pastaSlug, codigo, nomeArquivo) {
+  return `/files/${encodeURIComponent(String(pastaSlug || '').trim())}/${encodeURIComponent(String(codigo || '').trim())}/${encodeURIComponent(String(nomeArquivo || '').trim())}`;
+}
+
+function normalizarImagemPublica(urlPublica, pastaSlug, codigo, nomeArquivo) {
+  const fallback = montarUrlImagemPublica(pastaSlug, codigo, nomeArquivo);
+  if (!urlPublica) return fallback;
+  const texto = String(urlPublica).trim();
+  if (!texto) return fallback;
+  try {
+    const parsed = new URL(texto, 'http://localhost');
+    if (parsed.pathname) return parsed.pathname;
+  } catch {}
+  return texto.startsWith('/') ? texto : fallback;
 }
 
 function boolTexto(value) {
@@ -3476,13 +3491,16 @@ app.get('/painel/imoveis-pdf/:id', auth, async (req, res) => {
 });
 
 app.get('/imovel/:codigo/galeria', async (req, res) => {
-  const imovel = await pool.query('SELECT id, codigo, titulo, cidade, bairro, valor, status_publicacao FROM imoveis WHERE codigo = $1', [req.params.codigo]);
+  const imovel = await pool.query('SELECT id, categoria_slug, codigo, titulo, cidade, bairro, valor, status_publicacao FROM imoveis WHERE codigo = $1', [req.params.codigo]);
   if (!imovel.rows.length) return res.status(404).send('Imóvel não encontrado');
   const item = imovel.rows[0];
   if (String(item.status_publicacao || '').toLowerCase() === 'inativo') return res.status(404).send(getPublicUnavailablePropertyMessage());
   const fotos = await pool.query('SELECT nome_arquivo, url_publica, ordem FROM imovel_fotos WHERE imovel_id = $1 ORDER BY ordem', [item.id]);
   const imagens = fotos.rows.length
-    ? `<div class="gallery-grid">${fotos.rows.map((foto) => `<div class="gallery-item"><a href="${esc(foto.url_publica)}" target="_blank" rel="noopener noreferrer"><img src="${esc(foto.url_publica)}" alt="${esc(item.codigo)}" /></a></div>`).join('')}</div>`
+    ? `<div class="gallery-grid">${fotos.rows.map((foto) => {
+        const urlImagem = montarUrlImagemPublica(foto.categoria_slug || '', item.codigo, foto.nome_arquivo);
+        return `<div class="gallery-item"><a href="${esc(urlImagem)}" target="_blank" rel="noopener noreferrer"><img src="${esc(urlImagem)}" alt="${esc(item.codigo)}" /></a></div>`;
+      }).join('')}</div>`
     : '<div class="empty">Nenhuma imagem cadastrada para este imóvel.</div>';
   res.send(formShell({
     title: `Galeria do imóvel ${item.codigo}`,
@@ -3498,14 +3516,17 @@ app.get('/imovel/:codigo/galeria', async (req, res) => {
 app.get('/painel/imoveis-galeria/:id', auth, async (req, res) => {
   const imovel = await pool.query('SELECT id, codigo, cidade, bairro, valor FROM imoveis WHERE id = $1', [req.params.id]);
   if (!imovel.rows.length) return res.status(404).send('Imóvel não encontrado');
-  const fotos = await pool.query('SELECT id, nome_arquivo, caminho_local, url_publica, ordem FROM imovel_fotos WHERE imovel_id = $1 ORDER BY ordem', [req.params.id]);
+  const fotos = await pool.query('SELECT i.categoria_slug, f.id, f.nome_arquivo, f.caminho_local, f.url_publica, f.ordem FROM imovel_fotos f JOIN imoveis i ON i.id = f.imovel_id WHERE f.imovel_id = $1 ORDER BY f.ordem', [req.params.id]);
   const item = imovel.rows[0];
   const returnTo = typeof req.query.returnTo === 'string' && req.query.returnTo.startsWith('/painel/imoveis') ? req.query.returnTo : `/painel/imoveis?codigo=${encodeURIComponent(item.codigo)}`;
   const modoEdicao = ehGaleriaModoEdicao(returnTo, item.id);
   const imagens = fotos.rows.length
-    ? `<div class="gallery-grid">${fotos.rows.map((foto) => modoEdicao
-        ? `<div class="gallery-item"><a href="${esc(foto.url_publica)}" target="_blank" rel="noopener noreferrer"><img src="${esc(foto.url_publica)}" alt="${esc(item.codigo)}" /></a><div class="gallery-actions"><a href="/painel/imoveis-galeria-download/${foto.id}" class="btn-link">Baixar imagem</a></div><form method="post" action="/painel/imoveis-foto-excluir/${foto.id}" onsubmit="return confirm('Confirma excluir esta imagem?');"><input type="hidden" name="returnTo" value="${esc(`/painel/imoveis-galeria/${item.id}?returnTo=${returnTo}`)}" /><button type="submit" class="btn-danger">Excluir imagem</button></form></div>`
-        : `<div class="gallery-item"><a href="${esc(foto.url_publica)}" target="_blank" rel="noopener noreferrer"><img src="${esc(foto.url_publica)}" alt="${esc(item.codigo)}" /></a><div class="gallery-actions"><a href="/painel/imoveis-galeria-download/${foto.id}" class="btn-link">Baixar imagem</a></div></div>`).join('')}</div>`
+    ? `<div class="gallery-grid">${fotos.rows.map((foto) => {
+        const urlImagem = montarUrlImagemPublica(foto.categoria_slug || '', item.codigo, foto.nome_arquivo);
+        return modoEdicao
+        ? `<div class="gallery-item"><a href="${esc(urlImagem)}" target="_blank" rel="noopener noreferrer"><img src="${esc(urlImagem)}" alt="${esc(item.codigo)}" /></a><div class="gallery-actions"><a href="/painel/imoveis-galeria-download/${foto.id}" class="btn-link">Baixar imagem</a></div><form method="post" action="/painel/imoveis-foto-excluir/${foto.id}" onsubmit="return confirm('Confirma excluir esta imagem?');"><input type="hidden" name="returnTo" value="${esc(`/painel/imoveis-galeria/${item.id}?returnTo=${returnTo}`)}" /><button type="submit" class="btn-danger">Excluir imagem</button></form></div>`
+        : `<div class="gallery-item"><a href="${esc(urlImagem)}" target="_blank" rel="noopener noreferrer"><img src="${esc(urlImagem)}" alt="${esc(item.codigo)}" /></a><div class="gallery-actions"><a href="/painel/imoveis-galeria-download/${foto.id}" class="btn-link">Baixar imagem</a></div></div>`;
+      }).join('')}</div>`
     : '<div class="empty">Nenhuma imagem cadastrada para este imóvel.</div>';
   res.send(shell({
     title: `Galeria do imóvel ${item.codigo}`,
@@ -3656,7 +3677,7 @@ app.post('/painel/imoveis/novo', auth, upload.array('fotos', 30), async (req, re
         const nomeArquivo = `${codigo}_${String(ordem).padStart(2, '0')}${ext}`;
         const destino = path.join(pasta, nomeArquivo);
         fs.renameSync(file.path, destino);
-        await client.query('INSERT INTO imovel_fotos (id, imovel_id, nome_arquivo, caminho_local, url_publica, ordem, legenda) VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6)', [id, nomeArquivo, destino, `${baseUrl}/${nomeArquivo}`, ordem, codigo]);
+        await client.query('INSERT INTO imovel_fotos (id, imovel_id, nome_arquivo, caminho_local, url_publica, ordem, legenda) VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6)', [id, nomeArquivo, destino, montarUrlImagemPublica(pasta_slug, codigo, nomeArquivo), ordem, codigo]);
       }
     }
     await client.query('COMMIT');
@@ -3837,6 +3858,16 @@ app.post('/painel/imoveis-excluir/:id', auth, async (req, res) => {
     client.release();
   }
 });
+
+const requiredPanelCreds = [
+  ['PANEL_ADMIN_USER', process.env.PANEL_ADMIN_USER],
+  ['PANEL_ADMIN_PASSWORD', process.env.PANEL_ADMIN_PASSWORD],
+].filter(([, value]) => !String(value || '').trim());
+
+if (requiredPanelCreds.length > 0) {
+  console.error('Credenciais obrigatórias ausentes para iniciar o painel:', requiredPanelCreds.map(([key]) => key).join(', '));
+  process.exit(1);
+}
 
 const port = Number(process.env.APP_PORT || 5180);
 app.listen(port, '127.0.0.1', () => {

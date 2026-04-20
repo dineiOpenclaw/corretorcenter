@@ -45,7 +45,7 @@ Bootstrap concluído.
 
 Próximos passos:
 1. Revisar $ENV_FILE
-2. Configurar domínio/nginx/SSL
+2. Configurar domínio/Caddy/HTTPS
 3. Publicar o service systemd
 4. Criar categorias iniciais no painel ou via seed opcional futura
 5. Subir o app com: node app/server.js
