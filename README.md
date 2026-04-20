@@ -10,10 +10,8 @@
 - `psql` disponível no host
 
 ### Passos
-1. Copiar o projeto para a VPS
-2. Criar o banco e usuário PostgreSQL
-3. Ajustar `.env` a partir de `.env.example`
-4. Rodar o assistente inicial recomendado:
+1. Fazer o clone do repositório na VPS
+2. Rodar o assistente inicial recomendado:
 
 ```bash
 ./scripts/install-wizard.sh
@@ -25,21 +23,21 @@ Se preferir o fluxo técnico direto, ainda existe:
 ./scripts/bootstrap.sh
 ```
 
-5. Validar localmente:
+3. Validar localmente:
 
 ```bash
 node app/server.js
 ```
 
-6. Publicar service systemd usando:
+4. Publicar service systemd usando:
 - `deploy/corretorcenter.service.example`
 
-7. Configurar Caddy/HTTPS usando:
+5. Configurar Caddy/HTTPS usando:
 - `deploy/caddy.corretorcenter.example.conf`
 - `deploy/DEPLOY_CHECKLIST.md`
 - `deploy/INSTALL_FLOW.md`
 
-8. Se quiser categorias iniciais padrão:
+6. Se quiser categorias iniciais padrão:
 
 ```bash
 ./scripts/seed-categorias.sh
@@ -50,20 +48,13 @@ node app/server.js
 - mostra dependências principais encontradas ou faltando
 - pede subdomínio principal do painel e sugere form1/galeria1/imagens1/files1/api1
 - pede e-mail válido para o setup
-- cria/preenche `.env` com domínios iniciais sugeridos desta VPS
+- cria/preenche `.env` durante a instalação
 - chama o bootstrap base
 - gera arquivo base do service systemd com o caminho real do projeto
 - pode publicar o service automaticamente quando o usuário confirmar
-- gera config base do caddy para o domínio principal e os demais hostnames da VPS
-- inclui template final multi-domain com SSL para painel, formulário, galeria e imagens
-- o wizard também gera a versão preenchida desse template SSL final
-- gera também uma config inicial multi-domain com comportamento separado para painel, formulário, galeria e imagens, incluindo limites de upload e cache básico para imagens
-- quando caddy estiver disponível, pode publicar automaticamente a config simples ou a multi-domain
-- o fluxo de SSL passa a considerar qual versão do caddy foi publicada
-- após emissão bem-sucedida do SSL no modo multi-domain, o wizard já pode trocar para a config final HTTPS
-- prepara a próxima etapa de SSL com instruções baseadas no ambiente
-- monta o comando inicial de SSL para painel, formulário, galeria e imagens
-- quando Caddy estiver disponível, pode tentar emitir o SSL automaticamente
+- gera config base do Caddy para os hostnames da VPS
+- publica o HTTPS automaticamente quando o Caddy estiver disponível
+- quando o Caddy não estiver disponível, tenta instalar pacote ou binário oficial
 - orienta abrir o painel web para finalizar a configuração
 
 ## O que o bootstrap faz
