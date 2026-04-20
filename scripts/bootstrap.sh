@@ -29,7 +29,7 @@ fi
 
 log "Instalando dependências Node"
 cd "$ROOT_DIR"
-npm install
+PUPPETEER_SKIP_DOWNLOAD=1 npm install
 
 log "Executando migration base"
 "$ROOT_DIR/scripts/migrate.sh"
