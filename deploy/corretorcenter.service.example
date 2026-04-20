@@ -1,0 +1,16 @@
+[Unit]
+Description=CorretorCenter
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/corretorcenter
+EnvironmentFile=/opt/corretorcenter/.env
+ExecStart=/usr/bin/node /opt/corretorcenter/app/server.js
+Restart=always
+RestartSec=5
+User=www-data
+Group=www-data
+
+[Install]
+WantedBy=multi-user.target

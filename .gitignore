@@ -1,0 +1,15 @@
+.env
+node_modules/
+backups/
+backup_cleber/
+backup_cleber_clientes/
+backup_imoveis/
+uploads-tmp/
+storage/
+*.log
+*.tar.gz
+*.zip
+.last-maintenance-run.json
+.maintenance-history.json
+.update-detected-changes.txt
+.update-manifest.json
