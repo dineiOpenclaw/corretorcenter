@@ -8,10 +8,35 @@
 - Caddy (o assistente tenta instalar o pacote ou o binário oficial, se necessário)
 - Domínio/subdomínios apontados, com sufixo 1 nesta VPS
 - `psql` disponível no host
+- `git` instalado no host
 
 ### Passos
-1. Fazer o clone do repositório na VPS
-2. Rodar o assistente inicial recomendado:
+1. Instalar o Git na VPS, se ainda não existir:
+
+Ubuntu/Debian:
+```bash
+sudo apt update && sudo apt install -y git
+```
+
+Oracle Linux/RHEL/Fedora:
+```bash
+sudo dnf install -y git
+```
+
+2. Verificar se o Git ficou disponível:
+
+```bash
+git --version
+```
+
+3. Fazer o clone do repositório na VPS:
+
+```bash
+git clone git@github.com:dineiOpenclaw/corretorcenter.git
+cd corretorcenter
+```
+
+4. Rodar o assistente inicial recomendado:
 
 ```bash
 ./scripts/install-wizard.sh
@@ -23,7 +48,7 @@ Se preferir o fluxo técnico direto, ainda existe:
 ./scripts/bootstrap.sh
 ```
 
-3. Validar localmente:
+5. Validar localmente:
 
 ```bash
 node app/server.js
