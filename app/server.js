@@ -3498,7 +3498,7 @@ app.get('/imovel/:codigo/galeria', async (req, res) => {
   const fotos = await pool.query('SELECT nome_arquivo, url_publica, ordem FROM imovel_fotos WHERE imovel_id = $1 ORDER BY ordem', [item.id]);
   const imagens = fotos.rows.length
     ? `<div class="gallery-grid">${fotos.rows.map((foto) => {
-        const urlImagem = montarUrlImagemPublica(foto.categoria_slug || '', item.codigo, foto.nome_arquivo);
+        const urlImagem = normalizarImagemPublica(foto.url_publica, item.categoria_slug || '', item.codigo, foto.nome_arquivo);
         return `<div class="gallery-item"><a href="${esc(urlImagem)}" target="_blank" rel="noopener noreferrer"><img src="${esc(urlImagem)}" alt="${esc(item.codigo)}" /></a></div>`;
       }).join('')}</div>`
     : '<div class="empty">Nenhuma imagem cadastrada para este imóvel.</div>';
