@@ -6,7 +6,7 @@ const fs = require('fs');
 const { execFile } = require('child_process');
 const basicAuth = require('basic-auth');
 const multer = require('multer');
-const htmlToPdf = require('html-pdf-node');
+const puppeteer = require('puppeteer');
 
 const PDF_BROWSER_CANDIDATES = [
   process.env.PUPPETEER_EXECUTABLE_PATH,
@@ -2438,24 +2438,24 @@ function renderPdfImovel({ item, fotos, tipo }) {
   </body></html>`;
 }
 
-function getPdfOptions() {
-  const executablePath = getPdfBrowserPath();
-  if (!executablePath) {
-    throw new Error('Nenhum navegador compatível com PDF foi encontrado. Instale chromium/chromium-browser no servidor ou defina PUPPETEER_EXECUTABLE_PATH.');
-  }
-  return {
-    format: 'A4',
-    printBackground: true,
-    margin: { top: '10mm', right: '10mm', bottom: '10mm', left: '10mm' },
-    executablePath,
+async function gerarPdfHtml(html) {
+  const browser = await puppeteer.launch({
+    headless: 'new',
     args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
-  };
+  });
+  try {
+    const page = await browser.newPage();
+    await page.setContent(html, { waitUntil: 'networkidle0' });
+    return await page.pdf({ format: 'A4', printBackground: true, margin: { top: '10mm', right: '10mm', bottom: '10mm', left: '10mm' } });
+  } finally {
+    await browser.close();
+  }
 }
 
 async function gerarPdfImovel(id, tipo) {
   const dados = await carregarImovelCompleto(id);
   const html = renderPdfImovel({ ...dados, tipo });
-  return htmlToPdf.generatePdf({ content: html }, getPdfOptions());
+  return gerarPdfHtml(html);
 }
 
 async function carregarClienteCompleto(id) {
@@ -2514,7 +2514,7 @@ function renderPdfCliente(item) {
 async function gerarPdfCliente(id) {
   const item = await carregarClienteCompleto(id);
   const html = renderPdfCliente(item);
-  return htmlToPdf.generatePdf({ content: html }, getPdfOptions());
+  return gerarPdfHtml(html);
 }
 
 function exportFilename(tipo, formato) {
