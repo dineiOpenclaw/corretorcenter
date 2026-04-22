@@ -2312,15 +2312,44 @@ async function carregarImovelCompleto(id) {
     WHERE i.id = $1
   `, [id]);
   if (!imovel.rows.length) throw new Error('Imóvel não encontrado');
-  const fotos = await pool.query('SELECT nome_arquivo, url_publica, ordem FROM imovel_fotos WHERE imovel_id = $1 ORDER BY ordem', [id]);
+  const fotos = await pool.query('SELECT nome_arquivo, url_publica, caminho_local, ordem FROM imovel_fotos WHERE imovel_id = $1 ORDER BY ordem', [id]);
   return { item: imovel.rows[0], fotos: fotos.rows };
+}
+
+function imageMimeFromName(name) {
+  const ext = path.extname(String(name || '')).toLowerCase().replace('.', '');
+  if (ext === 'jpg' || ext === 'jpeg') return 'jpeg';
+  if (ext === 'png') return 'png';
+  if (ext === 'webp') return 'webp';
+  if (ext === 'gif') return 'gif';
+  return 'jpeg';
+}
+
+function pdfImageSrc(foto) {
+  const candidates = [foto?.caminho_local, foto?.url_publica].filter(Boolean);
+  for (const candidate of candidates) {
+    const texto = String(candidate).trim();
+    if (!texto) continue;
+    if (texto.startsWith('data:image/')) return texto;
+    if (texto.startsWith('http://') || texto.startsWith('https://')) return texto;
+    if (texto.startsWith('/')) return texto;
+    if (fs.existsSync(texto)) {
+      const content = fs.readFileSync(texto).toString('base64');
+      return `data:image/${imageMimeFromName(texto)};base64,${content}`;
+    }
+  }
+  return '';
 }
 
 function renderPdfImovel({ item, fotos, tipo }) {
   const company = process.env.PANEL_TITLE || getAppDisplayName();
   const diferenciais = listaDiferenciais(item.diferenciais);
   const imagens = fotos.length
-    ? fotos.map((foto) => `<div class="image-card"><img src="${esc(foto.url_publica)}" alt="${esc(item.codigo)}" /><span>${esc(foto.nome_arquivo)}</span></div>`).join('')
+    ? fotos.map((foto) => {
+        const src = pdfImageSrc(foto);
+        if (!src) return '';
+        return `<div class="image-card"><img src="${esc(src)}" alt="${esc(item.codigo)}" /><span>${esc(foto.nome_arquivo)}</span></div>`;
+      }).filter(Boolean).join('')
     : '<p class="muted">Nenhuma imagem cadastrada.</p>';
 
   const detalhesComerciais = `
