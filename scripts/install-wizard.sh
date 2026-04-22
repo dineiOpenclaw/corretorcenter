@@ -426,20 +426,68 @@ host_firewall_blocks_web_ports() {
   return 1
 }
 
+ensure_iptables_persistence() {
+  if is_oracle_linux; then
+    if command -v service >/dev/null 2>&1; then
+      run_privileged service iptables save || return 1
+      return 0
+    fi
+    return 1
+  fi
+
+  if command -v apt-get >/dev/null 2>&1; then
+    run_privileged env DEBIAN_FRONTEND=noninteractive apt-get install -y iptables-persistent >/dev/null || true
+    run_privileged mkdir -p /etc/iptables
+    run_privileged sh -c 'iptables-save > /etc/iptables/rules.v4'
+    return 0
+  fi
+
+  return 1
+}
+
+open_web_ports_in_firewall() {
+  if ! command -v iptables >/dev/null 2>&1; then
+    echo "iptables não encontrado. Não foi possível liberar 80/443 automaticamente." >&2
+    return 1
+  fi
+
+  run_privileged iptables -C INPUT -p tcp --dport 80 -j ACCEPT 2>/dev/null || run_privileged iptables -I INPUT 1 -p tcp --dport 80 -j ACCEPT
+  run_privileged iptables -C INPUT -p tcp --dport 443 -j ACCEPT 2>/dev/null || run_privileged iptables -I INPUT 1 -p tcp --dport 443 -j ACCEPT
+  ensure_iptables_persistence || {
+    echo "As portas 80/443 foram liberadas no iptables atual, mas não consegui persistir automaticamente após reboot." >&2
+    return 1
+  }
+  echo "Portas 80 e 443 liberadas no firewall e persistidas para reinício."
+}
+
+handle_blocked_web_ports() {
+  local panel_domain="$1"
+  local public_ip="$2"
+  echo "HTTPS externo falhou porque esta VPS está bloqueando as portas 80/443 no firewall local." >&2
+  echo "IP público: ${public_ip}" >&2
+  echo "Domínio validado: ${panel_domain}" >&2
+  run_privileged iptables -S INPUT >&2 || true
+  read -r -p "Deseja liberar automaticamente as portas 80 e 443 no firewall desta VPS e persistir após reinício? [s/N]: " FIREWALL_ANSWER
+  FIREWALL_ANSWER="${FIREWALL_ANSWER,,}"
+  if [[ "$FIREWALL_ANSWER" == "s" || "$FIREWALL_ANSWER" == "sim" ]]; then
+    open_web_ports_in_firewall || return 1
+    return 0
+  fi
+  echo "Instalação encerrada: sem liberar 80/443 o subdomínio final não ficará acessível externamente." >&2
+  return 1
+}
+
 explain_external_https_failure() {
   local panel_domain="$1"
   local public_ip="$2"
   if host_firewall_blocks_web_ports; then
-    echo "HTTPS externo falhou porque esta VPS está bloqueando as portas 80/443 no firewall local." >&2
-    echo "IP público: ${public_ip}" >&2
-    echo "Domínio validado: ${panel_domain}" >&2
-    echo "Libere 80 e 443 no iptables/security list e execute novamente." >&2
-    run_privileged iptables -S INPUT >&2 || true
-    return
+    handle_blocked_web_ports "$panel_domain" "$public_ip" || return 1
+    return 0
   fi
   echo "O subdomínio final ainda não respondeu em https://${panel_domain}/health após publicar o Caddy." >&2
   echo "Verifique portas públicas 80/443, firewall do provedor e emissão do certificado." >&2
   run_privileged journalctl -u caddy -n 40 --no-pager >&2 || true
+  return 1
 }
 
 set_env_value() {
@@ -672,8 +720,11 @@ if ! test_url_with_retries "http://127.0.0.1:${APP_PORT_VALUE}/health" 10 2; the
 fi
 
 if ! test_url_with_retries "https://${PANEL_DOMAIN}/health" 20 3; then
-  explain_external_https_failure "$PANEL_DOMAIN" "$PUBLIC_IP"
-  exit 1
+  explain_external_https_failure "$PANEL_DOMAIN" "$PUBLIC_IP" || exit 1
+  if ! test_url_with_retries "https://${PANEL_DOMAIN}/health" 20 3; then
+    echo "O subdomínio final ainda não respondeu em https://${PANEL_DOMAIN}/health mesmo após ajustar o firewall local." >&2
+    exit 1
+  fi
 fi
 
 cat <<EOS
