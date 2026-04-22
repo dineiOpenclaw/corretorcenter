@@ -35,6 +35,14 @@ check_caddy_mode() {
   fi
 }
 
+check_pdf_browser() {
+  if command -v chromium-browser >/dev/null 2>&1 || command -v chromium >/dev/null 2>&1 || command -v google-chrome >/dev/null 2>&1 || command -v google-chrome-stable >/dev/null 2>&1; then
+    echo "OK"
+  else
+    echo "FALTANDO"
+  fi
+}
+
 get_os_id() {
   if [[ -f /etc/os-release ]]; then
     . /etc/os-release
@@ -117,6 +125,26 @@ run_as_postgres() {
   fi
   echo "Não foi possível executar comandos como usuário postgres." >&2
   return 1
+}
+
+ensure_pdf_browser() {
+  if [[ "$(check_pdf_browser)" == "OK" ]]; then
+    return 0
+  fi
+  echo
+  echo "Navegador para geração de PDF não encontrado."
+  read -r -p "Deseja tentar instalar automaticamente agora? [s/N]: " answer
+  answer="${answer,,}"
+  if [[ "$answer" != "s" && "$answer" != "sim" ]]; then
+    echo "Instalação automática do navegador cancelada."
+    return 1
+  fi
+  if is_oracle_linux; then
+    run_privileged dnf install -y chromium-browser || run_privileged dnf install -y chromium
+  else
+    run_privileged apt-get update
+    run_privileged apt-get install -y chromium-browser || run_privileged apt-get install -y chromium
+  fi
 }
 
 postgres_access_ok() {
@@ -560,6 +588,7 @@ if is_supported_linux; then SUPPORTED_OS="sim"; fi
 NODE_STATUS="$(check_cmd node)"
 NPM_STATUS="$(check_cmd npm)"
 PSQL_STATUS="$(check_cmd psql)"
+PDF_BROWSER_STATUS="$(check_pdf_browser)"
 POSTGRES_SERVICE_STATUS="NAO_VERIFICADO"
 if command -v systemctl >/dev/null 2>&1 && postgres_service_exists; then
   if systemctl is-active --quiet postgresql; then
@@ -581,6 +610,7 @@ Verificação inicial do ambiente:
 - node: $NODE_STATUS
 - npm: $NPM_STATUS
 - psql: $PSQL_STATUS
+- navegador para PDF: $PDF_BROWSER_STATUS
 - postgresql.service: $POSTGRES_SERVICE_STATUS
 - systemctl: $SYSTEMCTL_STATUS
 - https/caddy: $CADDY_MODE
@@ -603,9 +633,23 @@ if ((${#MISSING_REQUIRED[@]} > 0)); then
     NODE_STATUS="$(check_cmd node)"
     NPM_STATUS="$(check_cmd npm)"
     PSQL_STATUS="$(check_cmd psql)"
+    PDF_BROWSER_STATUS="$(check_pdf_browser)"
   else
     echo "Instalação automática ainda não foi adaptada para este sistema."
     echo "Instale manualmente as dependências com $(package_manager_hint) e execute novamente."
+    exit 1
+  fi
+fi
+
+if [[ "$PDF_BROWSER_STATUS" == "FALTANDO" ]]; then
+  if is_supported_linux; then
+    ensure_pdf_browser || {
+      echo "Não foi possível garantir a instalação do navegador para PDFs."
+      exit 1
+    }
+    PDF_BROWSER_STATUS="$(check_pdf_browser)"
+  else
+    echo "Instalação automática do navegador para PDF ainda não foi adaptada para este sistema."
     exit 1
   fi
 fi

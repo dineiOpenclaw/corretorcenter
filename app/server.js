@@ -8,6 +8,20 @@ const basicAuth = require('basic-auth');
 const multer = require('multer');
 const htmlToPdf = require('html-pdf-node');
 
+const PDF_BROWSER_CANDIDATES = [
+  process.env.PUPPETEER_EXECUTABLE_PATH,
+  process.env.CHROMIUM_PATH,
+  '/usr/bin/chromium-browser',
+  '/usr/bin/chromium',
+  '/snap/bin/chromium',
+  '/usr/bin/google-chrome-stable',
+  '/usr/bin/google-chrome',
+].filter(Boolean);
+
+function getPdfBrowserPath() {
+  return PDF_BROWSER_CANDIDATES.find((candidate) => candidate && fs.existsSync(candidate)) || null;
+}
+
 const app = express();
 const pool = new Pool({
   host: process.env.DB_HOST,
@@ -2395,10 +2409,24 @@ function renderPdfImovel({ item, fotos, tipo }) {
   </body></html>`;
 }
 
+function getPdfOptions() {
+  const executablePath = getPdfBrowserPath();
+  if (!executablePath) {
+    throw new Error('Nenhum navegador compatível com PDF foi encontrado. Instale chromium/chromium-browser no servidor ou defina PUPPETEER_EXECUTABLE_PATH.');
+  }
+  return {
+    format: 'A4',
+    printBackground: true,
+    margin: { top: '10mm', right: '10mm', bottom: '10mm', left: '10mm' },
+    executablePath,
+    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+  };
+}
+
 async function gerarPdfImovel(id, tipo) {
   const dados = await carregarImovelCompleto(id);
   const html = renderPdfImovel({ ...dados, tipo });
-  return htmlToPdf.generatePdf({ content: html }, { format: 'A4', printBackground: true, margin: { top: '10mm', right: '10mm', bottom: '10mm', left: '10mm' } });
+  return htmlToPdf.generatePdf({ content: html }, getPdfOptions());
 }
 
 async function carregarClienteCompleto(id) {
@@ -2457,7 +2485,7 @@ function renderPdfCliente(item) {
 async function gerarPdfCliente(id) {
   const item = await carregarClienteCompleto(id);
   const html = renderPdfCliente(item);
-  return htmlToPdf.generatePdf({ content: html }, { format: 'A4', printBackground: true, margin: { top: '10mm', right: '10mm', bottom: '10mm', left: '10mm' } });
+  return htmlToPdf.generatePdf({ content: html }, getPdfOptions());
 }
 
 function exportFilename(tipo, formato) {

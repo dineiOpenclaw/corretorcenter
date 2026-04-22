@@ -70,6 +70,7 @@ node app/server.js
 - recria o `.env` a partir do modelo a cada instalação, salvando backup quando já existir
 - chama o bootstrap base
 - gera e publica automaticamente o service systemd com o caminho real do projeto
+- garante um navegador compatível para geração de PDFs do painel
 - valida automaticamente a aplicação localmente no final da instalação
 - gera e publica automaticamente a config do Caddy
 - valida DNS, recarrega o Caddy e testa o subdomínio final
@@ -89,6 +90,7 @@ node app/server.js
 - sobe a aplicação localmente de forma temporária
 - testa `http://127.0.0.1:5180/health`
 - publica o service systemd
+- garante que a geração de PDF tenha navegador compatível no servidor
 - publica e recarrega o Caddy
 - valida se o domínio do painel aponta para o IP público da VPS
 - testa `https://<subdomínio-do-painel>/health`
