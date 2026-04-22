@@ -73,7 +73,7 @@ ensure_postgres_ready() {
 ensure_postgres_ready
 
 load_env_exports() {
-  eval "$(ENV_FILE=\"$ENV_FILE\" python3 - <<'PY'
+  eval "$(ENV_FILE="$ENV_FILE" python3 - <<'PY'
 from pathlib import Path
 import os, shlex
 env_file = Path(os.environ['ENV_FILE'])
