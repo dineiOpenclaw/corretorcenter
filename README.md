@@ -106,7 +106,7 @@ node app/server.js
 ./scripts/update-assisted.sh
 ```
 
-O fluxo também detecta mudanças relevantes desde a última atualização registrada, mesmo sem git.
+O fluxo agora também sincroniza com o Git remoto quando o projeto estiver em um repositório versionado, mostra o commit antes/depois do update e depois continua com `npm install`, migration e restart.
 
 Referência:
 - `deploy/UPDATE_FLOW.md`

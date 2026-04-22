@@ -20,6 +20,26 @@ log() {
   printf '\n[%s] %s\n' "update" "$1"
 }
 
+current_git_commit() {
+  if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    git rev-parse --short HEAD 2>/dev/null || true
+  fi
+}
+
+sync_with_git_remote() {
+  if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    echo "Repositório git não detectado neste ambiente. Pulando sincronização com remoto."
+    return 0
+  fi
+
+  local branch
+  branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)"
+  echo "Commit local antes do update: $(current_git_commit || echo desconhecido)"
+  git fetch origin "$branch"
+  git pull --ff-only origin "$branch"
+  echo "Commit local após sincronização: $(current_git_commit || echo desconhecido)"
+}
+
 write_progress() {
   local percent="$1"
   local label="$2"
@@ -188,12 +208,17 @@ log "Atualização assistida do CorretorCenter"
 write_progress 10 "Preparando a atualização guiada do sistema."
 
 echo "Resumo do fluxo:"
+echo "- sincronização com o Git remoto quando o projeto estiver versionado"
 echo "- detecção de mudanças relevantes desde a última atualização registrada"
 echo "- backup opcional do projeto"
 echo "- npm install"
 echo "- migration"
 echo "- restart opcional/automático do service"
 echo "- checklist pós-update"
+
+log "Sincronizando com o Git remoto"
+write_progress 15 "Buscando a última versão publicada no GitHub."
+sync_with_git_remote
 
 log "Analisando mudanças relevantes"
 write_progress 20 "Analisando as mudanças importantes antes da atualização."
