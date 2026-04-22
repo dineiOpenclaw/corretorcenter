@@ -72,6 +72,64 @@ ensure_postgres_ready() {
 
 ensure_postgres_ready
 
+load_env_exports() {
+  eval "$(ENV_FILE=\"$ENV_FILE\" python3 - <<'PY'
+from pathlib import Path
+import os, shlex
+env_file = Path(os.environ['ENV_FILE'])
+for line in env_file.read_text().splitlines():
+    line = line.strip()
+    if not line or line.startswith('#') or '=' not in line:
+        continue
+    key, value = line.split('=', 1)
+    key = key.strip()
+    value = value.strip()
+    if not key or not key.replace('_', '').isalnum() or key[0].isdigit():
+        continue
+    if (value.startswith('"') and value.endswith('"')) or (value.startswith("'") and value.endswith("'")):
+        value = value[1:-1]
+    print(f"export {key}={shlex.quote(value)}")
+PY
+)"
+}
+
+ensure_env_db_values() {
+  : "${DB_NAME:?DB_NAME não definido no .env}"
+  : "${DB_USER:?DB_USER não definido no .env}"
+  : "${DB_PASSWORD:?DB_PASSWORD não definido no .env}"
+}
+
+postgres_escape_literal() {
+  printf '%s' "$1" | sed "s/'/''/g"
+}
+
+ensure_postgres_role_and_database() {
+  ensure_env_db_values
+
+  local db_name_escaped db_user_escaped db_password_escaped role_exists db_exists
+  db_name_escaped="$(postgres_escape_literal "$DB_NAME")"
+  db_user_escaped="$(postgres_escape_literal "$DB_USER")"
+  db_password_escaped="$(postgres_escape_literal "$DB_PASSWORD")"
+
+  role_exists="$(sudo -u postgres psql -tAc "SELECT 1 FROM pg_roles WHERE rolname = '$db_user_escaped'")"
+  if [[ "$role_exists" != "1" ]]; then
+    log "Criando usuário PostgreSQL $DB_USER"
+    sudo -u postgres psql -v ON_ERROR_STOP=1 -c "CREATE ROLE \"$DB_USER\" LOGIN PASSWORD '$db_password_escaped';"
+  else
+    log "Alinhando senha do usuário PostgreSQL $DB_USER"
+    sudo -u postgres psql -v ON_ERROR_STOP=1 -c "ALTER ROLE \"$DB_USER\" WITH LOGIN PASSWORD '$db_password_escaped';"
+  fi
+
+  db_exists="$(sudo -u postgres psql -tAc "SELECT 1 FROM pg_database WHERE datname = '$db_name_escaped'")"
+  if [[ "$db_exists" != "1" ]]; then
+    log "Criando banco PostgreSQL $DB_NAME"
+    sudo -u postgres psql -v ON_ERROR_STOP=1 -c "CREATE DATABASE \"$DB_NAME\" OWNER \"$DB_USER\";"
+  else
+    log "Garantindo ownership do banco PostgreSQL $DB_NAME"
+    sudo -u postgres psql -v ON_ERROR_STOP=1 -c "ALTER DATABASE \"$DB_NAME\" OWNER TO \"$DB_USER\";"
+  fi
+}
+
 if [[ ! -f "$ENV_FILE" ]]; then
   log "Criando .env a partir do .env.example"
   cp "$ENV_EXAMPLE" "$ENV_FILE"
@@ -79,6 +137,9 @@ if [[ ! -f "$ENV_FILE" ]]; then
 else
   log ".env já existe, mantendo arquivo atual"
 fi
+
+load_env_exports
+ensure_postgres_role_and_database
 
 log "Instalando dependências Node"
 cd "$ROOT_DIR"

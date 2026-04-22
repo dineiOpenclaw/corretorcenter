@@ -23,7 +23,7 @@ Exemplo lógico:
 - senha forte
 
 O assistente agora instala e sobe o PostgreSQL automaticamente quando ele não existe na VPS.
-A criação inicial do banco e do usuário continua sendo uma etapa manual, porque depende da credencial final definida para aquela instalação.
+No fluxo padrão, o assistente cria e alinha automaticamente o banco, o usuário e a senha definidos no `.env` antes da migration.
 
 ### 4. Ajustar `.env`
 No diretório do projeto, já considerando os subdomínios desta VPS:

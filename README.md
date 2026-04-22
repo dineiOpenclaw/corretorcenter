@@ -85,7 +85,7 @@ node app/server.js
 ## O que o bootstrap faz
 - cria `.env` a partir do exemplo, se não existir
 - instala dependências Node
-- instala PostgreSQL local quando necessário e inicia o serviço
+- instala PostgreSQL local quando necessário, cria/alinha usuário e banco padrão e inicia o serviço
 - roda migration base
 - aponta próximos passos de publicação
 
@@ -113,7 +113,7 @@ Referência:
 - caddy final
 - SSL
 - service definitivo no caminho da VPS
-- criação inicial do banco/usuário PostgreSQL
+- criação manual do banco/usuário PostgreSQL quando fugir do padrão automático do instalador
 
 ## Observação
 A migration base não força categorias iniciais. Isso é intencional para manter a base reaplicável.
