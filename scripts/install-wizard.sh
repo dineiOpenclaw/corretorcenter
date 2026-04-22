@@ -109,6 +109,11 @@ ensure_postgres() {
   local packages=()
   read -r -a packages <<<"$(postgres_packages)"
 
+  if ! command -v sudo >/dev/null 2>&1; then
+    echo "sudo não encontrado. Instale o PostgreSQL manualmente ou rode como root."
+    return 1
+  fi
+
   if command -v psql >/dev/null 2>&1 && postgres_service_exists; then
     if systemctl is-active --quiet postgresql; then
       return 0

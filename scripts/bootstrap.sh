@@ -18,6 +18,11 @@ require_cmd() {
 require_cmd node
 require_cmd npm
 
+if ! command -v systemctl >/dev/null 2>&1; then
+  echo "systemctl não encontrado. O bootstrap automático do PostgreSQL exige uma VPS Linux com systemd." >&2
+  exit 1
+fi
+
 get_os_id() {
   if [[ -f /etc/os-release ]]; then
     . /etc/os-release
