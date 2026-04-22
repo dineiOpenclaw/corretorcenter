@@ -73,6 +73,7 @@ node app/server.js
 - valida automaticamente a aplicação localmente no final da instalação
 - gera e publica automaticamente a config do Caddy
 - valida DNS, recarrega o Caddy e testa o subdomínio final
+- detecta bloqueio local de firewall nas portas 80/443 e informa o operador com mensagem objetiva
 - quando Caddy faltar, tenta instalar pacote e faz fallback para o binário oficial
 - orienta abrir o painel web para finalizar a configuração
 
@@ -90,6 +91,7 @@ node app/server.js
 - publica e recarrega o Caddy
 - valida se o domínio do painel aponta para o IP público da VPS
 - testa `https://<subdomínio-do-painel>/health`
+- se o HTTPS externo falhar, tenta explicar a causa real, incluindo bloqueio local de firewall em 80/443
 - interrompe com log ou erro claro se alguma etapa não responder
 
 ## Verificação pós-deploy

@@ -413,6 +413,35 @@ test_url_with_retries() {
   return 1
 }
 
+host_firewall_blocks_web_ports() {
+  if command -v iptables >/dev/null 2>&1; then
+    local rules
+    rules="$(run_privileged iptables -S INPUT 2>/dev/null || true)"
+    if grep -q -- '-A INPUT -j REJECT' <<<"$rules" || grep -q -- '-A INPUT -j DROP' <<<"$rules"; then
+      if ! grep -q -- '--dport 80 -j ACCEPT' <<<"$rules" || ! grep -q -- '--dport 443 -j ACCEPT' <<<"$rules"; then
+        return 0
+      fi
+    fi
+  fi
+  return 1
+}
+
+explain_external_https_failure() {
+  local panel_domain="$1"
+  local public_ip="$2"
+  if host_firewall_blocks_web_ports; then
+    echo "HTTPS externo falhou porque esta VPS está bloqueando as portas 80/443 no firewall local." >&2
+    echo "IP público: ${public_ip}" >&2
+    echo "Domínio validado: ${panel_domain}" >&2
+    echo "Libere 80 e 443 no iptables/security list e execute novamente." >&2
+    run_privileged iptables -S INPUT >&2 || true
+    return
+  fi
+  echo "O subdomínio final ainda não respondeu em https://${panel_domain}/health após publicar o Caddy." >&2
+  echo "Verifique portas públicas 80/443, firewall do provedor e emissão do certificado." >&2
+  run_privileged journalctl -u caddy -n 40 --no-pager >&2 || true
+}
+
 set_env_value() {
   local key="$1"
   local value="$2"
@@ -643,7 +672,7 @@ if ! test_url_with_retries "http://127.0.0.1:${APP_PORT_VALUE}/health" 10 2; the
 fi
 
 if ! test_url_with_retries "https://${PANEL_DOMAIN}/health" 20 3; then
-  echo "O subdomínio final ainda não respondeu em https://${PANEL_DOMAIN}/health após publicar o Caddy." >&2
+  explain_external_https_failure "$PANEL_DOMAIN" "$PUBLIC_IP"
   exit 1
 fi
 
