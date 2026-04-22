@@ -22,4 +22,16 @@ for line in env_file.read_text().splitlines():
 PY
 )"
 
+: "${DB_HOST:?DB_HOST não definido no .env}"
+: "${DB_PORT:?DB_PORT não definido no .env}"
+: "${DB_NAME:?DB_NAME não definido no .env}"
+: "${DB_USER:?DB_USER não definido no .env}"
+: "${DB_PASSWORD:?DB_PASSWORD não definido no .env}"
+
+if ! PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -c 'SELECT 1' >/dev/null 2>&1; then
+  echo "Falha ao validar conexão com PostgreSQL usando DB_HOST/DB_PORT/DB_NAME/DB_USER do .env." >&2
+  echo "Revise as credenciais e o provisionamento do banco antes da migration." >&2
+  exit 1
+fi
+
 PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -f "$ROOT_DIR/db/migrations/001_init.sql"

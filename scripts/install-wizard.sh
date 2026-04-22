@@ -8,6 +8,7 @@ BOOTSTRAP_SCRIPT="$ROOT_DIR/scripts/bootstrap.sh"
 SERVICE_TEMPLATE="$ROOT_DIR/deploy/corretorcenter.service.example"
 SERVICE_OUTPUT="$ROOT_DIR/deploy/corretorcenter.generated.service"
 CADDY_OUTPUT="$ROOT_DIR/deploy/caddy.generated.conf"
+DEFAULT_APP_PORT="5180"
 
 log() {
   printf '\n[%s] %s\n' "wizard" "$1"
@@ -81,16 +82,45 @@ install_packages() {
     echo "Instalação automática cancelada."
     return 1
   fi
-  if ! command -v sudo >/dev/null 2>&1; then
+  if ! command -v sudo >/dev/null 2>&1 && [[ "$(id -u)" -ne 0 ]]; then
     echo "sudo não encontrado. Instale manualmente ou rode como root."
     return 1
   fi
   if is_oracle_linux; then
-    sudo dnf install -y "${packages[@]}"
+    run_privileged dnf install -y "${packages[@]}"
   else
-    sudo apt-get update
-    sudo apt-get install -y "${packages[@]}"
+    run_privileged apt-get update
+    run_privileged apt-get install -y "${packages[@]}"
   fi
+}
+
+run_privileged() {
+  if [[ "$(id -u)" -eq 0 ]]; then
+    "$@"
+  else
+    sudo "$@"
+  fi
+}
+
+run_as_postgres() {
+  if id postgres >/dev/null 2>&1; then
+    if command -v sudo >/dev/null 2>&1; then
+      sudo -u postgres "$@"
+      return
+    fi
+    if command -v su >/dev/null 2>&1; then
+      local cmd=""
+      printf -v cmd '%q ' "$@"
+      su - postgres -c "$cmd"
+      return
+    fi
+  fi
+  echo "Não foi possível executar comandos como usuário postgres." >&2
+  return 1
+}
+
+postgres_access_ok() {
+  run_as_postgres psql -tAc 'SELECT 1' >/dev/null 2>&1
 }
 
 postgres_packages() {
@@ -109,19 +139,19 @@ ensure_postgres() {
   local packages=()
   read -r -a packages <<<"$(postgres_packages)"
 
-  if ! command -v sudo >/dev/null 2>&1; then
+  if ! command -v sudo >/dev/null 2>&1 && [[ "$(id -u)" -ne 0 ]]; then
     echo "sudo não encontrado. Instale o PostgreSQL manualmente ou rode como root."
     return 1
   fi
 
   if command -v psql >/dev/null 2>&1 && postgres_service_exists; then
     if systemctl is-active --quiet postgresql; then
-      return 0
+      postgres_access_ok && return 0
     fi
     echo
     echo "PostgreSQL encontrado, mas o serviço está parado. Tentando iniciar..."
-    sudo systemctl enable --now postgresql
-    return $?
+    run_privileged systemctl enable --now postgresql
+    postgres_access_ok && return 0
   fi
 
   echo
@@ -130,11 +160,12 @@ ensure_postgres() {
 
   if is_oracle_linux && command -v postgresql-setup >/dev/null 2>&1; then
     if [[ ! -f /var/lib/pgsql/data/PG_VERSION ]]; then
-      sudo postgresql-setup --initdb
+      run_privileged postgresql-setup --initdb
     fi
   fi
 
-  sudo systemctl enable --now postgresql
+  run_privileged systemctl enable --now postgresql
+  postgres_access_ok
 }
 
 install_caddy_binary() {
@@ -155,9 +186,9 @@ install_caddy_binary() {
   tmpdir="$(mktemp -d)"
   curl -fsSL "$url" -o "$tmpdir/caddy.tgz" || return 1
   tar -xzf "$tmpdir/caddy.tgz" -C "$tmpdir" || return 1
-  sudo install -m 755 "$tmpdir/caddy" /usr/local/bin/caddy || return 1
+  run_privileged install -m 755 "$tmpdir/caddy" /usr/local/bin/caddy || return 1
   if [[ ! -f /etc/systemd/system/caddy.service ]]; then
-    sudo tee /etc/systemd/system/caddy.service >/dev/null <<'EOF'
+    run_privileged tee /etc/systemd/system/caddy.service >/dev/null <<'EOS'
 [Unit]
 Description=Caddy web server
 After=network.target
@@ -177,12 +208,12 @@ LimitNOFILE=1048576
 
 [Install]
 WantedBy=multi-user.target
-EOF
-    sudo mkdir -p /etc/caddy /var/lib/caddy/.config /var/lib/caddy/.local/share/caddy
-    sudo chown -R root:root /var/lib/caddy
+EOS
+    run_privileged mkdir -p /etc/caddy /var/lib/caddy/.config /var/lib/caddy/.local/share/caddy
+    run_privileged chown -R root:root /var/lib/caddy
   fi
-  sudo systemctl daemon-reload
-  sudo systemctl enable --now caddy
+  run_privileged systemctl daemon-reload
+  run_privileged systemctl enable --now caddy
 }
 
 ensure_caddy() {
@@ -191,14 +222,45 @@ ensure_caddy() {
   fi
   echo "Caddy não encontrado. Tentando instalar automaticamente..."
   if is_oracle_linux; then
-    if sudo dnf install -y caddy; then
+    if run_privileged dnf install -y caddy; then
       return 0
     fi
     echo "Pacote caddy não disponível no repositório padrão. Instalando binário oficial..."
     install_caddy_binary
     return $?
   fi
-  sudo apt-get update && sudo apt-get install -y caddy
+  if run_privileged apt-get update && run_privileged apt-get install -y caddy; then
+    return 0
+  fi
+  echo "Pacote caddy não disponível no apt atual. Instalando binário oficial..."
+  install_caddy_binary
+}
+
+port_in_use() {
+  local port="$1"
+  ss -ltn 2>/dev/null | awk '{print $4}' | grep -Eq "(^|:)$port$"
+}
+
+validate_runtime_ports() {
+  local failed=0
+  if port_in_use "$DEFAULT_APP_PORT"; then
+    echo "A porta ${DEFAULT_APP_PORT} já está em uso nesta VPS. Ajuste APP_PORT antes de continuar." >&2
+    failed=1
+  fi
+  return $failed
+}
+
+warn_caddy_ports() {
+  local warned=0
+  if port_in_use 80; then
+    echo "Aviso: a porta 80 já está em uso. A publicação do Caddy/HTTP pode falhar." >&2
+    warned=1
+  fi
+  if port_in_use 443; then
+    echo "Aviso: a porta 443 já está em uso. A publicação do Caddy/HTTPS pode falhar." >&2
+    warned=1
+  fi
+  return $warned
 }
 
 prepare_caddy_config() {
@@ -208,36 +270,35 @@ prepare_caddy_config() {
   local images_domain="$4"
   local files_domain="$5"
   local api_domain="$6"
-  cat > "$CADDY_OUTPUT" <<EOF
+  cat > "$CADDY_OUTPUT" <<EOC
 ${panel_domain} {
-  reverse_proxy 127.0.0.1:5180
+  reverse_proxy 127.0.0.1:${DEFAULT_APP_PORT}
 }
 
 ${form_domain} {
-  reverse_proxy 127.0.0.1:5180
+  reverse_proxy 127.0.0.1:${DEFAULT_APP_PORT}
 }
 
 ${gallery_domain} {
-  reverse_proxy 127.0.0.1:5180
+  reverse_proxy 127.0.0.1:${DEFAULT_APP_PORT}
 }
 
 ${images_domain} {
-  reverse_proxy 127.0.0.1:5180
+  reverse_proxy 127.0.0.1:${DEFAULT_APP_PORT}
 }
 
 ${files_domain} {
-  reverse_proxy 127.0.0.1:5180
+  reverse_proxy 127.0.0.1:${DEFAULT_APP_PORT}
 }
 
 ${api_domain} {
-  reverse_proxy 127.0.0.1:5180
+  reverse_proxy 127.0.0.1:${DEFAULT_APP_PORT}
 }
-EOF
+EOC
   echo "Config Caddy gerada em: $CADDY_OUTPUT"
 }
 
 prepare_service_file() {
-
   if [[ ! -f "$SERVICE_TEMPLATE" ]]; then
     echo "Template de service não encontrado: $SERVICE_TEMPLATE"
     return 1
@@ -253,7 +314,7 @@ prepare_service_file() {
 
 publish_service_file() {
   local target="/etc/systemd/system/corretorcenter.service"
-  if ! command -v sudo >/dev/null 2>&1; then
+  if ! command -v sudo >/dev/null 2>&1 && [[ "$(id -u)" -ne 0 ]]; then
     echo "sudo não encontrado. Publicação automática do service indisponível."
     return 1
   fi
@@ -263,9 +324,9 @@ publish_service_file() {
     echo "Publicação automática do service cancelada."
     return 1
   fi
-  sudo cp "$SERVICE_OUTPUT" "$target"
-  sudo systemctl daemon-reload
-  sudo systemctl enable --now corretorcenter
+  run_privileged cp "$SERVICE_OUTPUT" "$target"
+  run_privileged systemctl daemon-reload
+  run_privileged systemctl enable --now corretorcenter
   echo "Service systemd publicado e iniciado com sucesso."
 }
 
@@ -280,21 +341,58 @@ validate_email() {
 set_env_value() {
   local key="$1"
   local value="$2"
-  local escaped
-  if [[ "$value" =~ [[:space:]] ]]; then
-    escaped=$(printf '%s' "$value" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')
-  else
-    escaped="$value"
+  local tmp
+  tmp="$(mktemp)"
+  ENV_FILE="$ENV_FILE" KEY="$key" VALUE="$value" TMP_FILE="$tmp" python3 - <<'PY'
+from pathlib import Path
+import os
+
+env_file = Path(os.environ['ENV_FILE'])
+key = os.environ['KEY']
+value = os.environ['VALUE']
+tmp_file = Path(os.environ['TMP_FILE'])
+lines = env_file.read_text().splitlines() if env_file.exists() else []
+out = []
+found = False
+for line in lines:
+    if line.startswith(f"{key}="):
+        out.append(f"{key}={value}")
+        found = True
+    else:
+        out.append(line)
+if not found:
+    out.append(f"{key}={value}")
+tmp_file.write_text("\n".join(out) + "\n")
+PY
+  mv "$tmp" "$ENV_FILE"
+}
+
+backup_existing_env() {
+  if [[ -f "$ENV_FILE" ]]; then
+    local backup="$ROOT_DIR/.env.backup.$(date +%Y%m%d-%H%M%S)"
+    cp "$ENV_FILE" "$backup"
+    log ".env existente salvo em $backup e recriado do zero para evitar sujeira de tentativas anteriores"
   fi
-  if grep -qE "^${key}=" "$ENV_FILE"; then
-    sed -i "s|^${key}=.*|${key}=${escaped}|" "$ENV_FILE"
-  else
-    printf '%s=%s\n' "$key" "$escaped" >> "$ENV_FILE"
-  fi
+  cp "$ENV_EXAMPLE" "$ENV_FILE"
+}
+
+prompt_panel_password() {
+  while true; do
+    read -r -p "Senha inicial do painel [visível, enter para usar padrão]: " PANEL_ADMIN_PASSWORD_INPUT
+    PANEL_ADMIN_PASSWORD_INPUT="${PANEL_ADMIN_PASSWORD_INPUT:-${PANEL_ADMIN_PASSWORD:-$DEFAULT_PANEL_ADMIN_PASSWORD}}"
+    read -r -p "Confirme a senha inicial do painel [visível]: " PANEL_ADMIN_PASSWORD_CONFIRM
+    PANEL_ADMIN_PASSWORD_CONFIRM="${PANEL_ADMIN_PASSWORD_CONFIRM:-${PANEL_ADMIN_PASSWORD:-$DEFAULT_PANEL_ADMIN_PASSWORD}}"
+    if [[ "$PANEL_ADMIN_PASSWORD_INPUT" == "$PANEL_ADMIN_PASSWORD_CONFIRM" ]]; then
+      printf '%s' "$PANEL_ADMIN_PASSWORD_INPUT"
+      return 0
+    fi
+    echo "As senhas não conferem. Tente novamente."
+  done
 }
 
 require_cmd bash
 require_cmd python3
+require_cmd ss
 
 CADDY_MODE="indisponivel"
 
@@ -321,7 +419,7 @@ fi
 SYSTEMCTL_STATUS="$(check_cmd systemctl)"
 CADDY_MODE="$(check_caddy_mode)"
 
-cat <<EOF
+cat <<EOV
 
 Verificação inicial do ambiente:
 - sistema: ${OS_ID}${OS_LIKE:+ (like: $OS_LIKE)}
@@ -332,13 +430,13 @@ Verificação inicial do ambiente:
 - postgresql.service: $POSTGRES_SERVICE_STATUS
 - systemctl: $SYSTEMCTL_STATUS
 - https/caddy: $CADDY_MODE
-EOF
+EOV
+
+validate_runtime_ports || exit 1
 
 MISSING_REQUIRED=()
 [[ "$NODE_STATUS" == "FALTANDO" ]] && MISSING_REQUIRED+=(nodejs npm)
 [[ "$NPM_STATUS" == "FALTANDO" && "$NODE_STATUS" != "FALTANDO" ]] && MISSING_REQUIRED+=(npm)
-MISSING_OPTIONAL=()
-[[ "$CADDY_MODE" == "indisponivel" ]] && MISSING_OPTIONAL+=(caddy)
 
 if ((${#MISSING_REQUIRED[@]} > 0)); then
   echo
@@ -379,21 +477,7 @@ if [[ "$SYSTEMCTL_STATUS" == "OK" ]]; then
   fi
 fi
 
-if [[ "$CADDY_MODE" == "indisponivel" ]]; then
-  echo
-  if is_supported_linux; then
-    ensure_caddy || {
-      echo "Não foi possível instalar o Caddy automaticamente."
-      exit 1
-    }
-    CADDY_MODE="$(check_caddy_mode)"
-  fi
-fi
-
-if [[ ! -f "$ENV_FILE" ]]; then
-  cp "$ENV_EXAMPLE" "$ENV_FILE"
-  log ".env criado a partir do .env.example"
-fi
+backup_existing_env
 
 while true; do
   read -r -p "Informe o subdomínio principal do painel (ex.: painel.seudominio.com): " PANEL_DOMAIN
@@ -432,12 +516,11 @@ set_env_value API_DOMAIN "$DEFAULT_API_DOMAIN"
 set_env_value SETUP_CONTACT_EMAIL "$SETUP_EMAIL"
 set_env_value APP_NAME "${APP_NAME:-$DEFAULT_APP_NAME}"
 set_env_value PANEL_TITLE "${PANEL_TITLE:-$DEFAULT_PANEL_TITLE}"
+set_env_value APP_PORT "${APP_PORT:-$DEFAULT_APP_PORT}"
 
 read -r -p "Usuário inicial do painel [${PANEL_ADMIN_USER:-$DEFAULT_PANEL_ADMIN_USER}]: " PANEL_ADMIN_USER_INPUT
 PANEL_ADMIN_USER_INPUT="${PANEL_ADMIN_USER_INPUT:-${PANEL_ADMIN_USER:-$DEFAULT_PANEL_ADMIN_USER}}"
-read -r -s -p "Senha inicial do painel [oculta, enter para usar padrão]: " PANEL_ADMIN_PASSWORD_INPUT
-printf '\n'
-PANEL_ADMIN_PASSWORD_INPUT="${PANEL_ADMIN_PASSWORD_INPUT:-${PANEL_ADMIN_PASSWORD:-$DEFAULT_PANEL_ADMIN_PASSWORD}}"
+PANEL_ADMIN_PASSWORD_INPUT="$(prompt_panel_password)"
 set_env_value PANEL_ADMIN_USER "$PANEL_ADMIN_USER_INPUT"
 set_env_value PANEL_ADMIN_PASSWORD "$PANEL_ADMIN_PASSWORD_INPUT"
 
@@ -449,12 +532,28 @@ if [[ -f "$SERVICE_OUTPUT" ]]; then
   publish_service_file || true
 fi
 
-prepare_caddy_config "$PANEL_DOMAIN" "$DEFAULT_FORM_DOMAIN" "$DEFAULT_GALLERY_DOMAIN" "$DEFAULT_IMAGES_DOMAIN" "$DEFAULT_FILES_DOMAIN" "$DEFAULT_API_DOMAIN" || true
-if [[ -f "$CADDY_OUTPUT" ]]; then
-  echo "Config Caddy pronta em: $CADDY_OUTPUT"
+warn_caddy_ports || true
+read -r -p "Deseja instalar/configurar Caddy agora? [s/N]: " CADDY_ANSWER
+CADDY_ANSWER="${CADDY_ANSWER,,}"
+if [[ "$CADDY_ANSWER" == "s" || "$CADDY_ANSWER" == "sim" ]]; then
+  if [[ "$CADDY_MODE" == "indisponivel" ]]; then
+    if is_supported_linux; then
+      ensure_caddy || {
+        echo "Não foi possível instalar o Caddy automaticamente."
+        exit 1
+      }
+      CADDY_MODE="$(check_caddy_mode)"
+    fi
+  fi
+  prepare_caddy_config "$PANEL_DOMAIN" "$DEFAULT_FORM_DOMAIN" "$DEFAULT_GALLERY_DOMAIN" "$DEFAULT_IMAGES_DOMAIN" "$DEFAULT_FILES_DOMAIN" "$DEFAULT_API_DOMAIN" || true
+  if [[ -f "$CADDY_OUTPUT" ]]; then
+    echo "Config Caddy pronta em: $CADDY_OUTPUT"
+  fi
+else
+  echo "Etapa de Caddy adiada. O arquivo será gerado depois, quando você quiser publicar HTTP/HTTPS."
 fi
 
-cat <<EOF
+cat <<EOS
 
 Status da infraestrutura após bootstrap:
 - node: $(check_cmd node)
@@ -462,9 +561,6 @@ Status da infraestrutura após bootstrap:
 - psql: $(check_cmd psql)
 - systemctl: $(check_cmd systemctl)
 - https/caddy: $(check_caddy_mode)
-EOF
-
-cat <<EOF
 
 Assistente concluído.
 
@@ -476,14 +572,14 @@ Resumo inicial:
 - Files sugerido: https://$DEFAULT_FILES_DOMAIN
 - API sugerido: https://$DEFAULT_API_DOMAIN
 - E-mail do setup: $SETUP_EMAIL
-- Login inicial do painel: ${PANEL_ADMIN_USER_INPUT} / (senha definida no setup)
+- Login inicial do painel: ${PANEL_ADMIN_USER_INPUT} / ${PANEL_ADMIN_PASSWORD_INPUT}
 
 Próximo passo recomendado:
 1. Subir a aplicação localmente
 2. Publicar ou revisar o service systemd
-3. Publicar ou revisar a config Caddy gerada
+3. Publicar ou revisar a config Caddy gerada quando quiser abrir HTTP/HTTPS
 4. Abrir o painel web de configuração em /painel/configuracoes
 5. Finalizar logo, cores, textos, credenciais e demais domínios no navegador
 6. HTTPS fica por conta do Caddy, sem passo manual de certificado
 7. Depois avançar para os ajustes finais de publicação por subdomínio
-EOF
+EOS

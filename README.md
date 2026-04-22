@@ -40,12 +40,6 @@ cd corretorcenter
 ./scripts/install-wizard.sh
 ```
 
-Se preferir o fluxo técnico direto, ainda existe:
-
-```bash
-./scripts/bootstrap.sh
-```
-
 5. Validar localmente:
 
 ```bash
@@ -73,13 +67,13 @@ node app/server.js
 - garante que o serviço `postgresql` esteja ativo antes da migration base
 - pede subdomínio principal do painel e sugere form1/galeria1/imagens1/files1/api1
 - pede e-mail válido para o setup
-- cria/preenche `.env` durante a instalação
+- recria o `.env` a partir do modelo a cada instalação, salvando backup quando já existir
 - chama o bootstrap base
 - gera arquivo base do service systemd com o caminho real do projeto
 - pode publicar o service automaticamente quando o usuário confirmar
 - gera config base do Caddy para os hostnames da VPS
-- publica o HTTPS automaticamente quando o Caddy estiver disponível
-- quando o Caddy não estiver disponível, tenta instalar pacote ou binário oficial
+- deixa Caddy/HTTPS para a etapa final, depois que app e banco estiverem prontos
+- quando Caddy faltar, tenta instalar pacote e faz fallback para o binário oficial
 - orienta abrir o painel web para finalizar a configuração
 
 ## O que o bootstrap faz
