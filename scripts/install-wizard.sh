@@ -263,6 +263,47 @@ warn_caddy_ports() {
   return $warned
 }
 
+validate_local_app() {
+  local app_port="${APP_PORT:-$DEFAULT_APP_PORT}"
+  local log_file="$ROOT_DIR/.install-app-check.log"
+  local app_pid=""
+
+  if port_in_use "$app_port"; then
+    echo "Validação local pulada: a porta ${app_port} já está em uso." >&2
+    return 1
+  fi
+
+  echo "Iniciando aplicação localmente para validação final..."
+  node "$ROOT_DIR/app/server.js" >"$log_file" 2>&1 &
+  app_pid=$!
+
+  cleanup_app_check() {
+    if [[ -n "$app_pid" ]] && kill -0 "$app_pid" 2>/dev/null; then
+      kill "$app_pid" 2>/dev/null || true
+      wait "$app_pid" 2>/dev/null || true
+    fi
+  }
+  trap cleanup_app_check RETURN
+
+  local attempt=0
+  while (( attempt < 15 )); do
+    if curl -fsS "http://127.0.0.1:${app_port}/health" >/dev/null 2>&1; then
+      echo "Validação local concluída com sucesso em http://127.0.0.1:${app_port}/health"
+      trap - RETURN
+      cleanup_app_check
+      return 0
+    fi
+    sleep 1
+    attempt=$((attempt + 1))
+  done
+
+  echo "Falha ao validar a aplicação localmente. Últimas linhas do log:" >&2
+  tail -n 40 "$log_file" >&2 || true
+  trap - RETURN
+  cleanup_app_check
+  return 1
+}
+
 prepare_caddy_config() {
   local panel_domain="$1"
   local form_domain="$2"
@@ -527,6 +568,8 @@ set_env_value PANEL_ADMIN_PASSWORD "$PANEL_ADMIN_PASSWORD_INPUT"
 log "Executando bootstrap base"
 "$BOOTSTRAP_SCRIPT"
 
+validate_local_app || exit 1
+
 prepare_service_file || true
 if [[ -f "$SERVICE_OUTPUT" ]]; then
   publish_service_file || true
@@ -575,11 +618,10 @@ Resumo inicial:
 - Login inicial do painel: ${PANEL_ADMIN_USER_INPUT} / ${PANEL_ADMIN_PASSWORD_INPUT}
 
 Próximo passo recomendado:
-1. Subir a aplicação localmente
-2. Publicar ou revisar o service systemd
-3. Publicar ou revisar a config Caddy gerada quando quiser abrir HTTP/HTTPS
-4. Abrir o painel web de configuração em /painel/configuracoes
-5. Finalizar logo, cores, textos, credenciais e demais domínios no navegador
-6. HTTPS fica por conta do Caddy, sem passo manual de certificado
-7. Depois avançar para os ajustes finais de publicação por subdomínio
+1. Publicar ou revisar o service systemd
+2. Publicar ou revisar a config Caddy gerada quando quiser abrir HTTP/HTTPS
+3. Abrir o painel web de configuração em /painel/configuracoes
+4. Finalizar logo, cores, textos, credenciais e demais domínios no navegador
+5. HTTPS fica por conta do Caddy, sem passo manual de certificado
+6. Depois avançar para os ajustes finais de publicação por subdomínio
 EOS

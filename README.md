@@ -70,6 +70,7 @@ node app/server.js
 - recria o `.env` a partir do modelo a cada instalação, salvando backup quando já existir
 - chama o bootstrap base
 - gera arquivo base do service systemd com o caminho real do projeto
+- valida automaticamente a aplicação localmente no final da instalação
 - pode publicar o service automaticamente quando o usuário confirmar
 - gera config base do Caddy para os hostnames da VPS
 - deixa Caddy/HTTPS para a etapa final, depois que app e banco estiverem prontos
@@ -82,6 +83,11 @@ node app/server.js
 - instala PostgreSQL local quando necessário, cria/alinha usuário e banco padrão e inicia o serviço
 - roda migration base
 - aponta próximos passos de publicação
+
+## O que o assistente valida no final
+- sobe a aplicação localmente de forma temporária
+- testa `http://127.0.0.1:5180/health`
+- interrompe com log se a aplicação não responder
 
 ## Verificação pós-deploy
 ```bash
