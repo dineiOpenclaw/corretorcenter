@@ -72,7 +72,8 @@ if [[ -z "$MEDIA_ROOT_DIR" ]]; then
   exit 1
 fi
 rm -rf "$STORAGE_DEST"
-cp -a "$MEDIA_ROOT_DIR" "$STORAGE_DEST/images"
+mkdir -p "$STORAGE_DEST"/images
+cp -a "$MEDIA_ROOT_DIR"/. "$STORAGE_DEST/images"
 
 echo "[backup-imoveis] Compactando backup..."
 tar -czf "$ARCHIVE_PATH" -C "$BACKUP_ROOT" "$TS"
