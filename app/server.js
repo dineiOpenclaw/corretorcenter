@@ -11,14 +11,15 @@ const puppeteer = require('puppeteer');
 const PDF_BROWSER_CANDIDATES = [
   process.env.PUPPETEER_EXECUTABLE_PATH,
   process.env.CHROMIUM_PATH,
-  '/usr/bin/chromium-browser',
-  '/usr/bin/chromium',
-  '/snap/bin/chromium',
   '/usr/bin/google-chrome-stable',
   '/usr/bin/google-chrome',
+  '/usr/bin/chromium-browser',
+  '/usr/bin/chromium',
 ].filter(Boolean);
 
 function getPdfBrowserPath() {
+  const bundled = typeof puppeteer.executablePath === 'function' ? puppeteer.executablePath() : '';
+  if (bundled && fs.existsSync(bundled)) return bundled;
   return PDF_BROWSER_CANDIDATES.find((candidate) => candidate && fs.existsSync(candidate)) || null;
 }
 
@@ -2439,8 +2440,13 @@ function renderPdfImovel({ item, fotos, tipo }) {
 }
 
 async function gerarPdfHtml(html) {
+  const executablePath = getPdfBrowserPath();
+  if (!executablePath) {
+    throw new Error('Nenhum navegador compatível com PDF foi encontrado. Instale Chrome/Chromium ou deixe o Puppeteer baixar o navegador.');
+  }
   const browser = await puppeteer.launch({
     headless: 'new',
+    executablePath,
     args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
   });
   try {
