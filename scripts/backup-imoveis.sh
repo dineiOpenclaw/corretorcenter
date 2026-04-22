@@ -8,7 +8,21 @@ TS="$(date +%Y-%m-%d_%H-%M-%S)"
 DEST="$BACKUP_ROOT/$TS"
 SQL_DIR="$DEST/sql"
 STORAGE_DEST="$DEST/storage"
-MEDIA_ROOT_DIR="${MEDIA_ROOT:-$ROOT_DIR/storage/images}"
+resolve_media_root() {
+  local candidates=(
+    "${MEDIA_ROOT:-}"
+    "$ROOT_DIR/storage/images"
+    "$ROOT_DIR/storage"
+    "$(dirname "$ROOT_DIR")/CorretorCenter/storage/images"
+    "$(dirname "$ROOT_DIR")/CorretorCenter/storage"
+  )
+  for candidate in "${candidates[@]}"; do
+    [[ -n "$candidate" && -d "$candidate" ]] && { printf "%s\n" "$candidate"; return 0; }
+  done
+  return 1
+}
+
+MEDIA_ROOT_DIR="$(resolve_media_root || true)"
 MANIFEST_FILE="$DEST/manifest.txt"
 ARCHIVE_PATH="$BACKUP_ROOT/${TS}.tar.gz"
 
@@ -42,7 +56,7 @@ mkdir -p "$STORAGE_DEST"
 printf 'timestamp=%s\n' "$TS" > "$MANIFEST_FILE"
 printf 'db_name=%s\n' "${DB_NAME:-}" >> "$MANIFEST_FILE"
 printf 'mode=imoveis-only\n' >> "$MANIFEST_FILE"
-printf 'media_root=%s\n' "$MEDIA_ROOT_DIR" >> "$MANIFEST_FILE"
+printf 'media_root=%s\n' "${MEDIA_ROOT_DIR:-unknown}" >> "$MANIFEST_FILE"
 
 echo "[backup-imoveis] Gerando dump SQL de imóveis..."
 PGPASSWORD="$DB_PASSWORD" pg_dump -h "$DB_HOST" -p "${DB_PORT:-5432}" -U "$DB_USER" -d "$DB_NAME" \
@@ -53,8 +67,8 @@ PGPASSWORD="$DB_PASSWORD" pg_dump -h "$DB_HOST" -p "${DB_PORT:-5432}" -U "$DB_US
   --table=imovel_fotos > "$SQL_DIR/imoveis.sql"
 
 echo "[backup-imoveis] Copiando storage de imagens..."
-if [[ ! -d "$MEDIA_ROOT_DIR" ]]; then
-  echo "Pasta de imagens não encontrada: $MEDIA_ROOT_DIR" >&2
+if [[ -z "$MEDIA_ROOT_DIR" ]]; then
+  echo "Pasta de imagens não encontrada em nenhum caminho conhecido." >&2
   exit 1
 fi
 rm -rf "$STORAGE_DEST"
