@@ -311,29 +311,30 @@ prepare_caddy_config() {
   local images_domain="$4"
   local files_domain="$5"
   local api_domain="$6"
+  local app_port="$7"
   cat > "$CADDY_OUTPUT" <<EOC
 ${panel_domain} {
-  reverse_proxy 127.0.0.1:${DEFAULT_APP_PORT}
+  reverse_proxy 127.0.0.1:${app_port}
 }
 
 ${form_domain} {
-  reverse_proxy 127.0.0.1:${DEFAULT_APP_PORT}
+  reverse_proxy 127.0.0.1:${app_port}
 }
 
 ${gallery_domain} {
-  reverse_proxy 127.0.0.1:${DEFAULT_APP_PORT}
+  reverse_proxy 127.0.0.1:${app_port}
 }
 
 ${images_domain} {
-  reverse_proxy 127.0.0.1:${DEFAULT_APP_PORT}
+  reverse_proxy 127.0.0.1:${app_port}
 }
 
 ${files_domain} {
-  reverse_proxy 127.0.0.1:${DEFAULT_APP_PORT}
+  reverse_proxy 127.0.0.1:${app_port}
 }
 
 ${api_domain} {
-  reverse_proxy 127.0.0.1:${DEFAULT_APP_PORT}
+  reverse_proxy 127.0.0.1:${app_port}
 }
 EOC
   echo "Config Caddy gerada em: $CADDY_OUTPUT"
@@ -359,15 +360,14 @@ publish_service_file() {
     echo "sudo não encontrado. Publicação automática do service indisponível."
     return 1
   fi
-  read -r -p "Deseja publicar automaticamente o service systemd? [s/N]: " answer
-  answer="${answer,,}"
-  if [[ "$answer" != "s" && "$answer" != "sim" ]]; then
-    echo "Publicação automática do service cancelada."
-    return 1
-  fi
   run_privileged cp "$SERVICE_OUTPUT" "$target"
   run_privileged systemctl daemon-reload
   run_privileged systemctl enable --now corretorcenter
+  if ! run_privileged systemctl is-active --quiet corretorcenter; then
+    echo "O service corretorcenter não permaneceu ativo após a publicação." >&2
+    run_privileged systemctl status corretorcenter --no-pager >&2 || true
+    return 1
+  fi
   echo "Service systemd publicado e iniciado com sucesso."
 }
 
@@ -377,6 +377,40 @@ validate_domain() {
 
 validate_email() {
   [[ "$1" =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ ]]
+}
+
+get_public_ip() {
+  curl -4 -fsS ifconfig.me 2>/dev/null || curl -4 -fsS https://ifconfig.me 2>/dev/null
+}
+
+domain_points_to_current_vps() {
+  local domain="$1"
+  local public_ip="$2"
+  getent ahostsv4 "$domain" 2>/dev/null | awk '{print $1}' | sort -u | grep -Fxq "$public_ip"
+}
+
+publish_caddy_file() {
+  local target="/etc/caddy/Caddyfile"
+  run_privileged mkdir -p /etc/caddy
+  run_privileged cp "$CADDY_OUTPUT" "$target"
+  run_privileged caddy validate --config "$target"
+  run_privileged systemctl enable --now caddy
+  run_privileged systemctl reload caddy
+}
+
+test_url_with_retries() {
+  local url="$1"
+  local attempts="${2:-20}"
+  local sleep_seconds="${3:-3}"
+  local i=0
+  while (( i < attempts )); do
+    if curl -k -fsS "$url" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep "$sleep_seconds"
+    i=$((i + 1))
+  done
+  return 1
 }
 
 set_env_value() {
@@ -557,7 +591,8 @@ set_env_value API_DOMAIN "$DEFAULT_API_DOMAIN"
 set_env_value SETUP_CONTACT_EMAIL "$SETUP_EMAIL"
 set_env_value APP_NAME "${APP_NAME:-$DEFAULT_APP_NAME}"
 set_env_value PANEL_TITLE "${PANEL_TITLE:-$DEFAULT_PANEL_TITLE}"
-set_env_value APP_PORT "${APP_PORT:-$DEFAULT_APP_PORT}"
+APP_PORT_VALUE="${APP_PORT:-$DEFAULT_APP_PORT}"
+set_env_value APP_PORT "$APP_PORT_VALUE"
 
 read -r -p "Usuário inicial do painel [${PANEL_ADMIN_USER:-$DEFAULT_PANEL_ADMIN_USER}]: " PANEL_ADMIN_USER_INPUT
 PANEL_ADMIN_USER_INPUT="${PANEL_ADMIN_USER_INPUT:-${PANEL_ADMIN_USER:-$DEFAULT_PANEL_ADMIN_USER}}"
@@ -572,28 +607,44 @@ validate_local_app || exit 1
 
 prepare_service_file || true
 if [[ -f "$SERVICE_OUTPUT" ]]; then
-  publish_service_file || true
+  publish_service_file || exit 1
 fi
 
 warn_caddy_ports || true
-read -r -p "Deseja instalar/configurar Caddy agora? [s/N]: " CADDY_ANSWER
-CADDY_ANSWER="${CADDY_ANSWER,,}"
-if [[ "$CADDY_ANSWER" == "s" || "$CADDY_ANSWER" == "sim" ]]; then
-  if [[ "$CADDY_MODE" == "indisponivel" ]]; then
-    if is_supported_linux; then
-      ensure_caddy || {
-        echo "Não foi possível instalar o Caddy automaticamente."
-        exit 1
-      }
-      CADDY_MODE="$(check_caddy_mode)"
-    fi
+if [[ "$CADDY_MODE" == "indisponivel" ]]; then
+  if is_supported_linux; then
+    ensure_caddy || {
+      echo "Não foi possível instalar o Caddy automaticamente."
+      exit 1
+    }
+    CADDY_MODE="$(check_caddy_mode)"
   fi
-  prepare_caddy_config "$PANEL_DOMAIN" "$DEFAULT_FORM_DOMAIN" "$DEFAULT_GALLERY_DOMAIN" "$DEFAULT_IMAGES_DOMAIN" "$DEFAULT_FILES_DOMAIN" "$DEFAULT_API_DOMAIN" || true
-  if [[ -f "$CADDY_OUTPUT" ]]; then
-    echo "Config Caddy pronta em: $CADDY_OUTPUT"
-  fi
-else
-  echo "Etapa de Caddy adiada. O arquivo será gerado depois, quando você quiser publicar HTTP/HTTPS."
+fi
+prepare_caddy_config "$PANEL_DOMAIN" "$DEFAULT_FORM_DOMAIN" "$DEFAULT_GALLERY_DOMAIN" "$DEFAULT_IMAGES_DOMAIN" "$DEFAULT_FILES_DOMAIN" "$DEFAULT_API_DOMAIN" "$APP_PORT_VALUE" || true
+if [[ -f "$CADDY_OUTPUT" ]]; then
+  echo "Config Caddy pronta em: $CADDY_OUTPUT"
+  publish_caddy_file || exit 1
+fi
+
+PUBLIC_IP="$(get_public_ip || true)"
+if [[ -z "$PUBLIC_IP" ]]; then
+  echo "Não foi possível descobrir o IP público da VPS para validar o domínio final." >&2
+  exit 1
+fi
+
+if ! domain_points_to_current_vps "$PANEL_DOMAIN" "$PUBLIC_IP"; then
+  echo "O domínio $PANEL_DOMAIN não aponta para este IP público ($PUBLIC_IP). Ajuste o DNS antes de concluir a instalação." >&2
+  exit 1
+fi
+
+if ! test_url_with_retries "http://127.0.0.1:${APP_PORT_VALUE}/health" 10 2; then
+  echo "A aplicação não respondeu localmente após a publicação do service." >&2
+  exit 1
+fi
+
+if ! test_url_with_retries "https://${PANEL_DOMAIN}/health" 20 3; then
+  echo "O subdomínio final ainda não respondeu em https://${PANEL_DOMAIN}/health após publicar o Caddy." >&2
+  exit 1
 fi
 
 cat <<EOS
@@ -607,8 +658,8 @@ Status da infraestrutura após bootstrap:
 
 Assistente concluído.
 
-Resumo inicial:
-- Painel: https://$PANEL_DOMAIN
+Resumo final:
+- Painel publicado em: https://$PANEL_DOMAIN
 - Formulário sugerido: https://$DEFAULT_FORM_DOMAIN
 - Galeria sugerida: https://$DEFAULT_GALLERY_DOMAIN
 - Imagens sugerido: https://$DEFAULT_IMAGES_DOMAIN
@@ -616,12 +667,12 @@ Resumo inicial:
 - API sugerido: https://$DEFAULT_API_DOMAIN
 - E-mail do setup: $SETUP_EMAIL
 - Login inicial do painel: ${PANEL_ADMIN_USER_INPUT} / ${PANEL_ADMIN_PASSWORD_INPUT}
+- IP público validado: $PUBLIC_IP
 
-Próximo passo recomendado:
-1. Publicar ou revisar o service systemd
-2. Publicar ou revisar a config Caddy gerada quando quiser abrir HTTP/HTTPS
-3. Abrir o painel web de configuração em /painel/configuracoes
-4. Finalizar logo, cores, textos, credenciais e demais domínios no navegador
-5. HTTPS fica por conta do Caddy, sem passo manual de certificado
-6. Depois avançar para os ajustes finais de publicação por subdomínio
+O painel está acessível no subdomínio informado.
+
+Próximos ajustes no navegador:
+1. Abrir o painel web de configuração em /painel/configuracoes
+2. Finalizar logo, cores, textos, credenciais e demais domínios no navegador
+3. Depois avançar para os ajustes finais de publicação por subdomínio
 EOS

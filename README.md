@@ -69,11 +69,10 @@ node app/server.js
 - pede e-mail válido para o setup
 - recria o `.env` a partir do modelo a cada instalação, salvando backup quando já existir
 - chama o bootstrap base
-- gera arquivo base do service systemd com o caminho real do projeto
+- gera e publica automaticamente o service systemd com o caminho real do projeto
 - valida automaticamente a aplicação localmente no final da instalação
-- pode publicar o service automaticamente quando o usuário confirmar
-- gera config base do Caddy para os hostnames da VPS
-- deixa Caddy/HTTPS para a etapa final, depois que app e banco estiverem prontos
+- gera e publica automaticamente a config do Caddy
+- valida DNS, recarrega o Caddy e testa o subdomínio final
 - quando Caddy faltar, tenta instalar pacote e faz fallback para o binário oficial
 - orienta abrir o painel web para finalizar a configuração
 
@@ -87,7 +86,11 @@ node app/server.js
 ## O que o assistente valida no final
 - sobe a aplicação localmente de forma temporária
 - testa `http://127.0.0.1:5180/health`
-- interrompe com log se a aplicação não responder
+- publica o service systemd
+- publica e recarrega o Caddy
+- valida se o domínio do painel aponta para o IP público da VPS
+- testa `https://<subdomínio-do-painel>/health`
+- interrompe com log ou erro claro se alguma etapa não responder
 
 ## Verificação pós-deploy
 ```bash
