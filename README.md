@@ -93,7 +93,7 @@ node app/server.js
 - valida se o domínio do painel aponta para o IP público da VPS
 - testa `https://<subdomínio-do-painel>/health`
 - se o HTTPS externo falhar, tenta explicar a causa real, incluindo bloqueio local de firewall em 80/443
-- nesse caso, pede confirmação para abrir 80/443 automaticamente e repete o teste externo
+- nesse caso, pede confirmação para abrir 80/443 automaticamente, recarrega o Caddy e aguarda mais tempo pela emissão do certificado antes de repetir o teste externo
 - interrompe com log ou erro claro se alguma etapa não responder
 
 ## Verificação pós-deploy

@@ -471,6 +471,8 @@ handle_blocked_web_ports() {
   FIREWALL_ANSWER="${FIREWALL_ANSWER,,}"
   if [[ "$FIREWALL_ANSWER" == "s" || "$FIREWALL_ANSWER" == "sim" ]]; then
     open_web_ports_in_firewall || return 1
+    run_privileged systemctl reload caddy || true
+    echo "Aguardando nova tentativa de emissão/validação HTTPS após liberar o firewall..."
     return 0
   fi
   echo "Instalação encerrada: sem liberar 80/443 o subdomínio final não ficará acessível externamente." >&2
@@ -721,8 +723,9 @@ fi
 
 if ! test_url_with_retries "https://${PANEL_DOMAIN}/health" 20 3; then
   explain_external_https_failure "$PANEL_DOMAIN" "$PUBLIC_IP" || exit 1
-  if ! test_url_with_retries "https://${PANEL_DOMAIN}/health" 20 3; then
-    echo "O subdomínio final ainda não respondeu em https://${PANEL_DOMAIN}/health mesmo após ajustar o firewall local." >&2
+  if ! test_url_with_retries "https://${PANEL_DOMAIN}/health" 60 3; then
+    echo "O subdomínio final ainda não respondeu em https://${PANEL_DOMAIN}/health mesmo após ajustar o firewall local e aguardar nova emissão do certificado." >&2
+    run_privileged journalctl -u caddy -n 60 --no-pager >&2 || true
     exit 1
   fi
 fi
