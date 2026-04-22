@@ -4,24 +4,10 @@ const { Pool } = require('pg');
 const path = require('path');
 const fs = require('fs');
 const { execFile } = require('child_process');
+const { promisify } = require('util');
 const basicAuth = require('basic-auth');
 const multer = require('multer');
-const puppeteer = require('puppeteer');
-
-const PDF_BROWSER_CANDIDATES = [
-  process.env.PUPPETEER_EXECUTABLE_PATH,
-  process.env.CHROMIUM_PATH,
-  '/usr/bin/google-chrome-stable',
-  '/usr/bin/google-chrome',
-  '/usr/bin/chromium-browser',
-  '/usr/bin/chromium',
-].filter(Boolean);
-
-function getPdfBrowserPath() {
-  const bundled = typeof puppeteer.executablePath === 'function' ? puppeteer.executablePath() : '';
-  if (bundled && fs.existsSync(bundled)) return bundled;
-  return PDF_BROWSER_CANDIDATES.find((candidate) => candidate && fs.existsSync(candidate)) || null;
-}
+const execFileAsync = promisify(execFile);
 
 const app = express();
 const pool = new Pool({
@@ -2440,21 +2426,27 @@ function renderPdfImovel({ item, fotos, tipo }) {
 }
 
 async function gerarPdfHtml(html) {
-  const executablePath = getPdfBrowserPath();
-  if (!executablePath) {
-    throw new Error('Nenhum navegador compatível com PDF foi encontrado. Instale Chrome/Chromium ou deixe o Puppeteer baixar o navegador.');
+  if (!fs.existsSync('/usr/bin/wkhtmltopdf') && !fs.existsSync('/bin/wkhtmltopdf')) {
+    throw new Error('wkhtmltopdf não encontrado no servidor. Instale o pacote wkhtmltopdf para habilitar os PDFs.');
   }
-  const browser = await puppeteer.launch({
-    headless: 'new',
-    executablePath,
-    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
-  });
+  const tmpDir = fs.mkdtempSync(path.join('/tmp', 'corretorcenter-pdf-'));
+  const htmlPath = path.join(tmpDir, 'documento.html');
+  const pdfPath = path.join(tmpDir, 'documento.pdf');
+  fs.writeFileSync(htmlPath, html, 'utf8');
   try {
-    const page = await browser.newPage();
-    await page.setContent(html, { waitUntil: 'networkidle0' });
-    return await page.pdf({ format: 'A4', printBackground: true, margin: { top: '10mm', right: '10mm', bottom: '10mm', left: '10mm' } });
+    await execFileAsync('wkhtmltopdf', [
+      '--enable-local-file-access',
+      '--print-media-type',
+      '--margin-top', '10mm',
+      '--margin-right', '10mm',
+      '--margin-bottom', '10mm',
+      '--margin-left', '10mm',
+      htmlPath,
+      pdfPath,
+    ]);
+    return fs.readFileSync(pdfPath);
   } finally {
-    await browser.close();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
   }
 }
 
