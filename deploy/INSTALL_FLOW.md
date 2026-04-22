@@ -4,15 +4,16 @@
 
 ### 1. Preparar a VPS
 - instalar Node.js 20+
-- instalar PostgreSQL 14+
+- instalar Git
 - instalar Caddy, ou deixar o assistente baixar o binário oficial se o pacote não existir
-- garantir `psql` disponível
+- deixar PostgreSQL para o assistente, se quiser o fluxo automático
 
-### 2. Copiar o projeto
-Exemplo:
+### 2. Clonar o projeto
+Exemplo para repositório público:
 
 ```bash
-scp -r CorretorCenter usuario@vps:/opt/corretorcenter
+git clone https://github.com/dineiOpenclaw/corretorcenter.git
+cd corretorcenter
 ```
 
 ### 3. Criar banco e usuário
@@ -20,6 +21,9 @@ Exemplo lógico:
 - banco: `corretorcenter`
 - usuário: `corretorcenter`
 - senha forte
+
+O assistente agora instala e sobe o PostgreSQL automaticamente quando ele não existe na VPS.
+A criação inicial do banco e do usuário continua sendo uma etapa manual, porque depende da credencial final definida para aquela instalação.
 
 ### 4. Ajustar `.env`
 No diretório do projeto, já considerando os subdomínios desta VPS:
@@ -42,6 +46,7 @@ Revisar no mínimo:
 ```
 
 O assistente já verifica se o ambiente tem os comandos principais antes de seguir.
+Se `psql` ou `postgresql.service` estiverem faltando, ele instala PostgreSQL localmente e sobe o serviço antes da migration base.
 
 Se preferir, ainda é possível usar diretamente:
 

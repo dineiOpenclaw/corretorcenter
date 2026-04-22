@@ -1,11 +1,12 @@
 # Deploy Checklist - CorretorCenter
 
 ## 1. Base do sistema
-- [ ] projeto copiado para a VPS
+- [ ] projeto clonado na VPS
 - [ ] Node.js instalado
-- [ ] PostgreSQL instalado
+- [ ] Git instalado
+- [ ] PostgreSQL instalado automaticamente pelo assistente ou manualmente
+- [ ] serviço `postgresql` ativo
 - [ ] Caddy instalado, por pacote ou binário oficial
-- [ ] `psql` disponível no host
 
 ## 2. Banco
 - [ ] banco criado
@@ -13,7 +14,7 @@
 - [ ] `.env` preenchido com credenciais corretas
 
 ## 3. Bootstrap
-- [ ] `./scripts/bootstrap.sh`
+- [ ] `./scripts/install-wizard.sh` ou `./scripts/bootstrap.sh`
 - [ ] migration executada com sucesso
 - [ ] `./scripts/seed-categorias.sh` executado se desejar catálogo inicial
 
