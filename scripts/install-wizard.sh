@@ -71,7 +71,7 @@ package_manager_hint() {
   fi
 }
 
-install_with_apt() {
+install_packages() {
   local packages=("$@")
   echo
   echo "Pacotes sugeridos para instalação: ${packages[*]}"
@@ -91,6 +91,45 @@ install_with_apt() {
     sudo apt-get update
     sudo apt-get install -y "${packages[@]}"
   fi
+}
+
+postgres_packages() {
+  if is_oracle_linux; then
+    echo "postgresql postgresql-server"
+  else
+    echo "postgresql postgresql-contrib postgresql-client"
+  fi
+}
+
+postgres_service_exists() {
+  systemctl list-unit-files 2>/dev/null | grep -q '^postgresql\.service'
+}
+
+ensure_postgres() {
+  local packages=()
+  read -r -a packages <<<"$(postgres_packages)"
+
+  if command -v psql >/dev/null 2>&1 && postgres_service_exists; then
+    if systemctl is-active --quiet postgresql; then
+      return 0
+    fi
+    echo
+    echo "PostgreSQL encontrado, mas o serviço está parado. Tentando iniciar..."
+    sudo systemctl enable --now postgresql
+    return $?
+  fi
+
+  echo
+  echo "PostgreSQL não encontrado por completo. O assistente precisa do servidor e do cliente locais antes da migration base."
+  install_packages "${packages[@]}" || return 1
+
+  if is_oracle_linux && command -v postgresql-setup >/dev/null 2>&1; then
+    if [[ ! -f /var/lib/pgsql/data/PG_VERSION ]]; then
+      sudo postgresql-setup --initdb
+    fi
+  fi
+
+  sudo systemctl enable --now postgresql
 }
 
 install_caddy_binary() {
@@ -264,6 +303,16 @@ if is_supported_linux; then SUPPORTED_OS="sim"; fi
 NODE_STATUS="$(check_cmd node)"
 NPM_STATUS="$(check_cmd npm)"
 PSQL_STATUS="$(check_cmd psql)"
+POSTGRES_SERVICE_STATUS="NAO_VERIFICADO"
+if command -v systemctl >/dev/null 2>&1 && postgres_service_exists; then
+  if systemctl is-active --quiet postgresql; then
+    POSTGRES_SERVICE_STATUS="ATIVO"
+  else
+    POSTGRES_SERVICE_STATUS="PARADO"
+  fi
+elif command -v systemctl >/dev/null 2>&1; then
+  POSTGRES_SERVICE_STATUS="FALTANDO"
+fi
 SYSTEMCTL_STATUS="$(check_cmd systemctl)"
 CADDY_MODE="$(check_caddy_mode)"
 
@@ -275,6 +324,7 @@ Verificação inicial do ambiente:
 - node: $NODE_STATUS
 - npm: $NPM_STATUS
 - psql: $PSQL_STATUS
+- postgresql.service: $POSTGRES_SERVICE_STATUS
 - systemctl: $SYSTEMCTL_STATUS
 - https/caddy: $CADDY_MODE
 EOF
@@ -282,7 +332,6 @@ EOF
 MISSING_REQUIRED=()
 [[ "$NODE_STATUS" == "FALTANDO" ]] && MISSING_REQUIRED+=(nodejs npm)
 [[ "$NPM_STATUS" == "FALTANDO" && "$NODE_STATUS" != "FALTANDO" ]] && MISSING_REQUIRED+=(npm)
-[[ "$PSQL_STATUS" == "FALTANDO" ]] && MISSING_REQUIRED+=(postgresql-client)
 MISSING_OPTIONAL=()
 [[ "$CADDY_MODE" == "indisponivel" ]] && MISSING_OPTIONAL+=(caddy)
 
@@ -290,7 +339,7 @@ if ((${#MISSING_REQUIRED[@]} > 0)); then
   echo
   echo "Dependências obrigatórias faltando: ${MISSING_REQUIRED[*]}"
   if is_supported_linux; then
-    install_with_apt "${MISSING_REQUIRED[@]}" || {
+    install_packages "${MISSING_REQUIRED[@]}" || {
       echo "Não foi possível concluir a instalação automática das dependências obrigatórias."
       exit 1
     }
@@ -300,6 +349,27 @@ if ((${#MISSING_REQUIRED[@]} > 0)); then
   else
     echo "Instalação automática ainda não foi adaptada para este sistema."
     echo "Instale manualmente as dependências com $(package_manager_hint) e execute novamente."
+    exit 1
+  fi
+fi
+
+if [[ "$SYSTEMCTL_STATUS" == "OK" ]]; then
+  if is_supported_linux; then
+    ensure_postgres || {
+      echo "Não foi possível garantir a instalação e ativação do PostgreSQL."
+      exit 1
+    }
+    PSQL_STATUS="$(check_cmd psql)"
+    if postgres_service_exists && systemctl is-active --quiet postgresql; then
+      POSTGRES_SERVICE_STATUS="ATIVO"
+    elif postgres_service_exists; then
+      POSTGRES_SERVICE_STATUS="PARADO"
+    else
+      POSTGRES_SERVICE_STATUS="FALTANDO"
+    fi
+  else
+    echo "Instalação automática do PostgreSQL ainda não foi adaptada para este sistema."
+    echo "Instale manualmente o servidor e o cliente PostgreSQL e execute novamente."
     exit 1
   fi
 fi

@@ -17,7 +17,55 @@ require_cmd() {
 
 require_cmd node
 require_cmd npm
-require_cmd psql
+
+get_os_id() {
+  if [[ -f /etc/os-release ]]; then
+    . /etc/os-release
+    echo "${ID:-unknown}"
+  else
+    echo "unknown"
+  fi
+}
+
+is_oracle_linux() {
+  [[ "$(get_os_id)" == "oraclelinux" || "$(get_os_id)" == "ol" ]]
+}
+
+install_postgres_packages() {
+  if ! command -v sudo >/dev/null 2>&1; then
+    echo "sudo não encontrado. Instale o PostgreSQL manualmente ou rode como root." >&2
+    exit 1
+  fi
+
+  if is_oracle_linux; then
+    sudo dnf install -y postgresql postgresql-server
+    if command -v postgresql-setup >/dev/null 2>&1 && [[ ! -f /var/lib/pgsql/data/PG_VERSION ]]; then
+      sudo postgresql-setup --initdb
+    fi
+  else
+    sudo apt-get update
+    sudo apt-get install -y postgresql postgresql-contrib postgresql-client
+  fi
+
+  sudo systemctl enable --now postgresql
+}
+
+ensure_postgres_ready() {
+  if command -v psql >/dev/null 2>&1 && systemctl list-unit-files 2>/dev/null | grep -q '^postgresql\.service'; then
+    if systemctl is-active --quiet postgresql; then
+      return 0
+    fi
+    log "PostgreSQL encontrado, mas parado. Iniciando serviço"
+    sudo systemctl enable --now postgresql
+    return 0
+  fi
+
+  log "PostgreSQL não encontrado por completo. Instalando automaticamente"
+  install_postgres_packages
+  require_cmd psql
+}
+
+ensure_postgres_ready
 
 if [[ ! -f "$ENV_FILE" ]]; then
   log "Criando .env a partir do .env.example"

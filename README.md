@@ -4,10 +4,8 @@
 
 ### Requisitos
 - Node.js 20+
-- PostgreSQL 14+
 - Caddy (o assistente tenta instalar o pacote ou o binário oficial, se necessário)
 - Domínio/subdomínios apontados, com sufixo 1 nesta VPS
-- `psql` disponível no host
 - `git` instalado no host
 
 ### Passos
@@ -32,7 +30,7 @@ git --version
 3. Fazer o clone do repositório na VPS:
 
 ```bash
-git clone git@github.com:dineiOpenclaw/corretorcenter.git
+git clone https://github.com/dineiOpenclaw/corretorcenter.git
 cd corretorcenter
 ```
 
@@ -71,6 +69,8 @@ node app/server.js
 ## O que o assistente inicial faz
 - verifica o ambiente antes de começar
 - mostra dependências principais encontradas ou faltando
+- instala automaticamente PostgreSQL local quando `psql` ou `postgresql.service` estiverem faltando
+- garante que o serviço `postgresql` esteja ativo antes da migration base
 - pede subdomínio principal do painel e sugere form1/galeria1/imagens1/files1/api1
 - pede e-mail válido para o setup
 - cria/preenche `.env` durante a instalação
@@ -85,6 +85,7 @@ node app/server.js
 ## O que o bootstrap faz
 - cria `.env` a partir do exemplo, se não existir
 - instala dependências Node
+- instala PostgreSQL local quando necessário e inicia o serviço
 - roda migration base
 - aponta próximos passos de publicação
 
