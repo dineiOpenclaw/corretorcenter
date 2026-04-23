@@ -16,7 +16,7 @@ Rode este comando **antes** de instalar o NPM para evitar falhas de SSL por port
 
 Ubuntu/Debian (iptables + persistência após reboot):
 ```bash
-sudo bash -lc 'set -e; apt-get update; apt-get install -y iptables-persistent; iptables -C INPUT -p tcp --dport 22 -j ACCEPT 2>/dev/null || iptables -I INPUT 1 -p tcp --dport 22 -j ACCEPT; iptables -C INPUT -p tcp --dport 80 -j ACCEPT 2>/dev/null || iptables -I INPUT 1 -p tcp --dport 80 -j ACCEPT; iptables -C INPUT -p tcp --dport 81 -j ACCEPT 2>/dev/null || iptables -I INPUT 1 -p tcp --dport 81 -j ACCEPT; iptables -C INPUT -p tcp --dport 443 -j ACCEPT 2>/dev/null || iptables -I INPUT 1 -p tcp --dport 443 -j ACCEPT; iptables -C INPUT -p tcp --dport 5180 -j ACCEPT 2>/dev/null || iptables -I INPUT 1 -p tcp --dport 5180 -j ACCEPT; mkdir -p /etc/iptables; iptables-save > /etc/iptables/rules.v4'
+sudo bash -lc 'set -e; apt-get update; apt-get install -y iptables-persistent; iptables -C INPUT -p tcp --dport 80 -j ACCEPT 2>/dev/null || iptables -I INPUT 1 -p tcp --dport 80 -j ACCEPT; iptables -C INPUT -p tcp --dport 81 -j ACCEPT 2>/dev/null || iptables -I INPUT 1 -p tcp --dport 81 -j ACCEPT; iptables -C INPUT -p tcp --dport 443 -j ACCEPT 2>/dev/null || iptables -I INPUT 1 -p tcp --dport 443 -j ACCEPT; iptables -C INPUT -p tcp --dport 5180 -j ACCEPT 2>/dev/null || iptables -I INPUT 1 -p tcp --dport 5180 -j ACCEPT; mkdir -p /etc/iptables; iptables-save > /etc/iptables/rules.v4'
 ```
 
 #### 2) Nginx Proxy Manager (pré-requisito)
