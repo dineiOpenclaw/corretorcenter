@@ -3574,7 +3574,7 @@ app.get('/painel/imoveis', async (req, res) => {
   }));
 });
 
-app.get('/painel/imoveis-pdf/:id', auth, async (req, res) => {
+app.get('/painel/imoveis-pdf/:id', async (req, res) => {
   const tipo = String(req.query.tipo || 'comercial').trim().toLowerCase();
   if (!['comercial', 'completo'].includes(tipo)) return res.status(400).send('Tipo de PDF inválido');
   if (tipo === 'completo' && !validarSenhaPainel(req.query.senha)) return res.status(403).send('Senha inválida');
