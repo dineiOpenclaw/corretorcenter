@@ -1051,7 +1051,38 @@ app.get('/health', async (req, res) => {
   }
 });
 
-const mediaRoot = path.resolve(process.env.MEDIA_ROOT || path.join(__dirname, '..', 'storage', 'images'));
+function directoryHasFiles(dir, depth = 3) {
+  try {
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (entry.isFile()) return true;
+      if (entry.isDirectory() && depth > 0) {
+        if (directoryHasFiles(path.join(dir, entry.name), depth - 1)) return true;
+      }
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+function resolveMediaRoot() {
+  const rootDir = path.join(__dirname, '..');
+  const candidates = [
+    process.env.MEDIA_ROOT,
+    path.join(rootDir, 'storage', 'images'),
+    path.join(rootDir, 'storage'),
+    path.join(path.dirname(rootDir), 'CorretorCenter', 'storage', 'images'),
+    path.join(path.dirname(rootDir), 'CorretorCenter', 'storage'),
+  ].filter(Boolean).map((item) => path.resolve(String(item)));
+
+  const existing = candidates.find((dir) => fs.existsSync(dir) && directoryHasFiles(dir));
+  if (existing) return existing;
+  const firstExisting = candidates.find((dir) => fs.existsSync(dir));
+  return firstExisting || path.resolve(path.join(rootDir, 'storage', 'images'));
+}
+
+const mediaRoot = resolveMediaRoot();
 fs.mkdirSync(mediaRoot, { recursive: true });
 app.use('/files', express.static(mediaRoot));
 app.use('/painel', auth);
@@ -2322,12 +2353,18 @@ function pdfImageSrc(foto) {
     const texto = String(candidate).trim();
     if (!texto) continue;
     if (texto.startsWith('data:image/')) return texto;
-    if (texto.startsWith('http://') || texto.startsWith('https://')) return texto;
-    if (texto.startsWith('/')) return texto;
     if (fs.existsSync(texto)) {
       const content = fs.readFileSync(texto).toString('base64');
       return `data:image/${imageMimeFromName(texto)};base64,${content}`;
     }
+    if (texto.startsWith('/files/')) {
+      const localFromPublic = path.join(mediaRoot, texto.replace(/^\/files\//, ''));
+      if (fs.existsSync(localFromPublic)) {
+        const content = fs.readFileSync(localFromPublic).toString('base64');
+        return `data:image/${imageMimeFromName(localFromPublic)};base64,${content}`;
+      }
+    }
+    if (texto.startsWith('http://') || texto.startsWith('https://')) return texto;
   }
   return '';
 }
@@ -3581,7 +3618,7 @@ app.get('/painel/imoveis-galeria/:id', auth, async (req, res) => {
   const modoEdicao = ehGaleriaModoEdicao(returnTo, item.id);
   const imagens = fotos.rows.length
     ? `<div class="gallery-grid">${fotos.rows.map((foto) => {
-        const urlImagem = montarUrlImagemPublica(foto.categoria_slug || '', item.codigo, foto.nome_arquivo);
+        const urlImagem = normalizarImagemPublica(foto.url_publica, foto.categoria_slug || '', item.codigo, foto.nome_arquivo);
         return modoEdicao
         ? `<div class="gallery-item"><a href="${esc(urlImagem)}" target="_blank" rel="noopener noreferrer"><img src="${esc(urlImagem)}" alt="${esc(item.codigo)}" /></a><div class="gallery-actions"><a href="/painel/imoveis-galeria-download/${foto.id}" class="btn-link">Baixar imagem</a></div><form method="post" action="/painel/imoveis-foto-excluir/${foto.id}" onsubmit="return confirm('Confirma excluir esta imagem?');"><input type="hidden" name="returnTo" value="${esc(`/painel/imoveis-galeria/${item.id}?returnTo=${returnTo}`)}" /><button type="submit" class="btn-danger">Excluir imagem</button></form></div>`
         : `<div class="gallery-item"><a href="${esc(urlImagem)}" target="_blank" rel="noopener noreferrer"><img src="${esc(urlImagem)}" alt="${esc(item.codigo)}" /></a><div class="gallery-actions"><a href="/painel/imoveis-galeria-download/${foto.id}" class="btn-link">Baixar imagem</a></div></div>`;
