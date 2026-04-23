@@ -739,7 +739,7 @@ if [[ "$CADDY_MODE" == "indisponivel" ]]; then
     CADDY_MODE="$(check_caddy_mode)"
   fi
 fi
-prepare_caddy_config "$PANEL_DOMAIN" "$DEFAULT_FORM_DOMAIN" "$DEFAULT_GALLERY_DOMAIN" "$DEFAULT_IMAGES_DOMAIN" "$APP_PORT_VALUE" || true
+prepare_caddy_config "$PANEL_DOMAIN" "$DEFAULT_FORM_DOMAIN" "$DEFAULT_GALLERY_DOMAIN" "$DEFAULT_IMAGES_DOMAIN" "$DEFAULT_APP_PORT" || true
 if [[ -f "$CADDY_OUTPUT" ]]; then
   echo "Config Caddy pronta em: $CADDY_OUTPUT"
   publish_caddy_file || exit 1
