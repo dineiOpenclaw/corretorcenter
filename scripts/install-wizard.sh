@@ -354,14 +354,6 @@ ${gallery_domain} {
 ${images_domain} {
   reverse_proxy 127.0.0.1:${app_port}
 }
-
-${files_domain} {
-  reverse_proxy 127.0.0.1:${app_port}
-}
-
-${api_domain} {
-  reverse_proxy 127.0.0.1:${app_port}
-}
 EOC
   echo "Config Caddy gerada em: $CADDY_OUTPUT"
 }
