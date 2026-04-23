@@ -164,6 +164,7 @@ main() {
 
   log "Garantindo dependências"
   ensure_cmd git git >/dev/null 2>&1 || true
+  ensure_cmd curl curl >/dev/null 2>&1
   ensure_cmd node nodejs >/dev/null 2>&1
   ensure_cmd npm npm >/dev/null 2>&1
   ensure_postgres
@@ -175,7 +176,12 @@ main() {
   log "Gerando e publicando service"
   prepare_service_file || true
   if [[ -f "$SERVICE_OUTPUT" ]]; then
-    publish_service_file
+    if ! publish_service_file; then
+      echo "Falha ao publicar/iniciar corretorcenter.service" >&2
+      run_privileged systemctl status corretorcenter --no-pager >&2 || true
+      run_privileged journalctl -u corretorcenter -n 60 --no-pager >&2 || true
+      exit 1
+    fi
   else
     warn "Não consegui gerar o service automaticamente. Você pode publicar manualmente via deploy/corretorcenter.service.example"
   fi

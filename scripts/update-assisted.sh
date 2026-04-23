@@ -273,5 +273,5 @@ Próximos passos recomendados:
 2. Validar cadastro/edição de imóvel e cliente
 3. Validar formulário público
 4. Validar galeria e imagens públicas
-5. Se houve alteração de Caddy/HTTPS, validar também os hosts publicados
+5. Se houve alteração de proxy/SSL/domínios, validar também os hosts publicados
 EOF

@@ -201,8 +201,7 @@ Bootstrap concluído.
 
 Próximos passos:
 1. Revisar $ENV_FILE
-2. Configurar domínio/Caddy/HTTPS
-3. Publicar o service systemd
+2. Publicar o service systemd
+3. Configurar proxy/SSL/subdomínios no Nginx Proxy Manager
 4. Criar categorias iniciais no painel ou via seed opcional futura
-5. Subir o app com: node app/server.js
 EOS
