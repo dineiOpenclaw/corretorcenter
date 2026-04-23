@@ -337,9 +337,7 @@ prepare_caddy_config() {
   local form_domain="$2"
   local gallery_domain="$3"
   local images_domain="$4"
-  local files_domain="$5"
-  local api_domain="$6"
-  local app_port="$7"
+  local app_port="$5"
   cat > "$CADDY_OUTPUT" <<EOC
 ${panel_domain} {
   reverse_proxy 127.0.0.1:${app_port}
