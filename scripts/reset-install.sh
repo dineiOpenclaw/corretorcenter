@@ -163,11 +163,22 @@ cleanup_caddy() {
   fi
 
   remove_package_if_installed caddy
+  if exists_unit 'caddy.service'; then
+    log 'Removendo service do caddy'
+    run_privileged systemctl stop caddy || true
+    run_privileged systemctl disable caddy || true
+  fi
   if [[ -f /etc/systemd/system/caddy.service ]]; then
     log 'Removendo unit custom do caddy'
     run_privileged rm -f /etc/systemd/system/caddy.service
     run_privileged systemctl daemon-reload || true
   fi
+  for path in /etc/caddy /var/lib/caddy; do
+    if [[ -e "$path" ]]; then
+      log "Removendo diretório do Caddy em $path"
+      run_privileged rm -rf "$path"
+    fi
+  done
 }
 
 cleanup_postgres() {
