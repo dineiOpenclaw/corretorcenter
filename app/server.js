@@ -2624,7 +2624,7 @@ async function removerPastaCategoriaSeVazia(client, categoriaSlug) {
   if (!info.rows.length || !info.rows[0].pasta_slug) return;
   const uso = await client.query('SELECT count(*)::int AS total FROM imoveis WHERE categoria_slug = $1', [categoriaSlug]);
   if (uso.rows[0].total > 0) return;
-  const baseImagesDir = path.resolve(process.env.MEDIA_ROOT || path.join(__dirname, '..', 'storage', 'images'));
+  const baseImagesDir = resolveMediaRoot();
   const pastaCategoria = path.resolve(baseImagesDir, info.rows[0].pasta_slug);
   fs.rmSync(pastaCategoria, { recursive: true, force: true });
 }
@@ -2829,7 +2829,7 @@ app.post('/painel/categorias-excluir/:id', auth, async (req, res) => {
       await client.query('ROLLBACK');
       return res.redirect(`/painel/categorias?erro=${encodeURIComponent('Não é possível excluir categoria com imóveis vinculados.')}`);
     }
-    const baseImagesDir = path.resolve(process.env.MEDIA_ROOT || path.join(__dirname, '..', 'storage', 'images'));
+    const baseImagesDir = resolveMediaRoot();
     const pastaCategoria = categoria.rows[0].pasta_slug ? path.resolve(baseImagesDir, categoria.rows[0].pasta_slug) : null;
     if (pastaCategoria) {
       fs.rmSync(pastaCategoria, { recursive: true, force: true });
@@ -3758,7 +3758,7 @@ app.post('/painel/imoveis/novo', auth, upload.array('fotos', 30), async (req, re
     }
     await client.query('BEGIN');
     const { codigo, pasta_slug } = await gerarCodigo(client, b.categoria_slug);
-    const pasta = path.join(process.env.MEDIA_ROOT || path.join(__dirname, '..', 'storage', 'images'), pasta_slug, codigo);
+    const pasta = path.join(mediaRoot, pasta_slug, codigo);
     fs.mkdirSync(pasta, { recursive: true });
     const baseUrl = `https://${process.env.IMAGES_DOMAIN}/files/${pasta_slug}/${codigo}`;
     const actor = getAuditActor();
