@@ -227,18 +227,12 @@ cleanup_runtime_packages() {
   remove_package_if_installed wkhtmltopdf
   remove_package_if_installed nodejs
   remove_package_if_installed npm
-  if package_installed iptables-persistent; then
-    log 'Removendo iptables-persistent'
-    if command -v apt-get >/dev/null 2>&1; then
-      run_privileged env DEBIAN_FRONTEND=noninteractive apt-get remove -y --purge iptables-persistent
-    fi
-  else
-    log 'iptables-persistent não encontrado, pulando.'
-  fi
 }
 
 cleanup_listening_ports() {
-  local ports=(5180 80 443)
+  # No novo fluxo (Nginx Proxy Manager), as portas 80/81/443 podem estar em uso e devem permanecer.
+  # O reset só garante que a porta do app não fique presa.
+  local ports=(5180)
   if command -v ss >/dev/null 2>&1; then
     for port in "${ports[@]}"; do
       local pids
@@ -260,24 +254,6 @@ cleanup_listening_ports() {
   fi
 }
 
-cleanup_firewall() {
-  if command -v iptables >/dev/null 2>&1; then
-    for port in 80 443; do
-      while run_privileged iptables -C INPUT -p tcp --dport "$port" -j ACCEPT >/dev/null 2>&1; do
-        log "Removendo regra iptables para porta $port"
-        run_privileged iptables -D INPUT -p tcp --dport "$port" -j ACCEPT || break
-      done
-    done
-  fi
-  if [[ -f /etc/iptables/rules.v4 ]]; then
-    log 'Removendo persistência de regras IPv4 em /etc/iptables/rules.v4'
-    run_privileged rm -f /etc/iptables/rules.v4
-  fi
-  if command -v service >/dev/null 2>&1 && [[ -f /etc/sysconfig/iptables ]]; then
-    log 'Limpando /etc/sysconfig/iptables'
-    run_privileged rm -f /etc/sysconfig/iptables
-  fi
-}
 
 cleanup_generated_files() {
   for file in \
@@ -300,7 +276,6 @@ ATENÇÃO: este reset remove a instalação do CorretorCenter, incluindo:
 - Caddy do projeto
 - PostgreSQL, banco e dados
 - Node.js, npm e wkhtmltopdf instalados para este fluxo
-- regras de firewall 80/443 adicionadas para o deploy
 
 Use apenas em VPS dedicada ao CorretorCenter.
 MSG
@@ -318,7 +293,6 @@ main() {
   cleanup_caddy
   cleanup_postgres
   cleanup_runtime_packages
-  cleanup_firewall
   cleanup_listening_ports
   cleanup_generated_files
   cleanup_app_dir "$APP_DIR_DEFAULT"
