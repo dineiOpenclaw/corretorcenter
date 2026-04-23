@@ -116,13 +116,17 @@ require_env_keys() {
 prepare_service_file() {
   [[ -f "$SERVICE_TEMPLATE" ]] || return 1
   local workdir="$ROOT_DIR"
-  local node_bin
+  local node_bin run_user run_group
   node_bin="$(command -v node)"
   [[ -n "$node_bin" ]] || return 1
+  run_user="${SUDO_USER:-$(id -un)}"
+  run_group="$(id -gn "$run_user")"
 
   sed \
     -e "s|__WORKDIR__|$workdir|g" \
     -e "s|__NODE_BIN__|$node_bin|g" \
+    -e "s|__RUN_USER__|$run_user|g" \
+    -e "s|__RUN_GROUP__|$run_group|g" \
     "$SERVICE_TEMPLATE" > "$SERVICE_OUTPUT"
 }
 

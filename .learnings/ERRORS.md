@@ -33,3 +33,30 @@ Add explicit firewall validation for inbound 80/443 before final HTTPS check, an
 - Related Files: scripts/install-wizard.sh
 
 ---
+## [ERR-20260423-001] install-wizard systemd service path mismatch
+
+**Logged**: 2026-04-23T20:10:00-03:00
+**Priority**: high
+**Status**: pending
+**Area**: infra
+
+### Summary
+New semi-automatic installer generated/published a systemd service that still pointed to `/opt/corretorcenter`, causing startup failure on fresh installs under `/home/ubuntu/corretorcenter`.
+
+### Error
+```
+corretorcenter.service: Failed to load environment files: No such file or directory
+corretorcenter.service: Failed to spawn 'start' task: No such file or directory
+```
+
+### Context
+The simplified installer stopped publishing Caddy but kept using the legacy service template with hardcoded paths and user/group. Fresh install then failed local health validation because the service never started.
+
+### Suggested Fix
+Template must use placeholders for working directory, env file, node binary, and runtime user/group; install-wizard must replace them when generating the service.
+
+### Metadata
+- Reproducible: yes
+- Related Files: scripts/install-wizard.sh,deploy/corretorcenter.service.example
+
+---

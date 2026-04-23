@@ -4,13 +4,13 @@ After=network.target postgresql.service
 
 [Service]
 Type=simple
-WorkingDirectory=/opt/corretorcenter
-EnvironmentFile=/opt/corretorcenter/.env
-ExecStart=/usr/bin/node /opt/corretorcenter/app/server.js
+WorkingDirectory=__WORKDIR__
+EnvironmentFile=__WORKDIR__/.env
+ExecStart=__NODE_BIN__ __WORKDIR__/app/server.js
 Restart=always
 RestartSec=5
-User=www-data
-Group=www-data
+User=__RUN_USER__
+Group=__RUN_GROUP__
 
 [Install]
 WantedBy=multi-user.target
