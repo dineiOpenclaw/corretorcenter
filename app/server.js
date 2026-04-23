@@ -1058,6 +1058,10 @@ app.use('/painel', auth);
 app.get('/', (req, res) => {
   const host = String(req.headers.host || '').toLowerCase();
   const galleryDomain = getGalleryDomain();
+  const formDomain = String(process.env.FORM_DOMAIN || '').trim().toLowerCase();
+  if (formDomain && host.startsWith(formDomain)) {
+    return res.redirect('/formulario');
+  }
   if (galleryDomain && host.startsWith(galleryDomain)) {
     return res.send(formShell({
       title: getPublicGalleryPageTitle(),

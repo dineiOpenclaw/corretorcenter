@@ -113,6 +113,37 @@ O fluxo agora também sincroniza com o Git remoto quando o projeto estiver em um
 Referência:
 - `deploy/UPDATE_FLOW.md`
 
+## Reset completo para reinstalação limpa
+
+Use este reset apenas em VPS dedicada ao CorretorCenter. Ele tenta remover somente o que existir no momento, então funciona mesmo quando a instalação anterior falhou no meio do caminho.
+
+O que ele limpa:
+- pasta do projeto
+- serviço `corretorcenter`
+- Caddy do projeto
+- PostgreSQL, banco e dados
+- `nodejs`, `npm` e `wkhtmltopdf` instalados para o fluxo
+- persistência de firewall aberta no deploy
+
+### Uso normal
+Saia da pasta do projeto e execute:
+
+```bash
+cd ..
+bash corretorcenter/scripts/reset-install.sh
+```
+
+### Uso sem confirmação interativa
+```bash
+cd ..
+bash corretorcenter/scripts/reset-install.sh --yes
+```
+
+### Observação importante
+- se você estiver dentro da pasta `corretorcenter`, o script interrompe para evitar erro na remoção
+- se algum item não existir, ele apenas informa e segue
+- se a instalação tiver quebrado no meio, o reset continua tentando limpar o que sobrou
+
 ## Distribuição e licenciamento
 
 ## Status do Bloco 4
