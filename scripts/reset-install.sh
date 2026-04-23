@@ -201,6 +201,7 @@ cleanup_postgres() {
   remove_package_if_installed postgresql
   remove_package_if_installed postgresql-contrib
   remove_package_if_installed postgresql-client
+  remove_package_if_installed postgresql-client-common
   remove_package_if_installed postgresql-server
 
   for path in /var/lib/postgresql /var/lib/pgsql /etc/postgresql; do
