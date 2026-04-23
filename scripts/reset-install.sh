@@ -230,9 +230,9 @@ cleanup_runtime_packages() {
 }
 
 cleanup_listening_ports() {
-  # No novo fluxo (Nginx Proxy Manager), as portas 80/81/443 podem estar em uso e devem permanecer.
-  # O reset só garante que a porta do app não fique presa.
-  local ports=(5180)
+  # No fluxo de reinstalação limpa, encerramos processos que estiverem segurando portas públicas.
+  # Isso evita falhas de proxy/SSL por conflito de porta.
+  local ports=(5180 80 81 443)
   if command -v ss >/dev/null 2>&1; then
     for port in "${ports[@]}"; do
       local pids
