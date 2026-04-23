@@ -128,7 +128,7 @@ cleanup_caddy() {
   local domains=()
   for env_file in "$APP_DIR_DEFAULT/.env" "$APP_DIR_DEFAULT/.env.example"; do
     [[ -f "$env_file" ]] || continue
-    for key in PANEL_DOMAIN FORM_DOMAIN GALLERY_DOMAIN IMAGES_DOMAIN FILES_DOMAIN API_DOMAIN; do
+    for key in PANEL_DOMAIN FORM_DOMAIN GALLERY_DOMAIN IMAGES_DOMAIN; do
       value="$(read_env_value "$key" "$env_file" 2>/dev/null || true)"
       [[ -n "${value:-}" ]] && domains+=("$value")
     done

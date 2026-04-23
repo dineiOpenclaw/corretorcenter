@@ -65,7 +65,7 @@ node app/server.js
 - mostra dependências principais encontradas ou faltando
 - instala automaticamente PostgreSQL local quando `psql` ou `postgresql.service` estiverem faltando
 - garante que o serviço `postgresql` esteja ativo antes da migration base
-- pede subdomínio principal do painel e sugere form1/galeria1/imagens1/files1/api1
+- pede subdomínio principal do painel e sugere form1/galeria1/imagens1
 - pede e-mail válido para o setup
 - recria o `.env` a partir do modelo a cada instalação, salvando backup quando já existir
 - chama o bootstrap base

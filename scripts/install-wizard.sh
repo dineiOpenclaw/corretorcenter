@@ -698,8 +698,6 @@ done
 DEFAULT_FORM_DOMAIN="form1.${PANEL_DOMAIN#*.}"
 DEFAULT_GALLERY_DOMAIN="galeria1.${PANEL_DOMAIN#*.}"
 DEFAULT_IMAGES_DOMAIN="imagens1.${PANEL_DOMAIN#*.}"
-DEFAULT_FILES_DOMAIN="files1.${PANEL_DOMAIN#*.}"
-DEFAULT_API_DOMAIN="api1.${PANEL_DOMAIN#*.}"
 DEFAULT_APP_NAME="Minha Imobiliária"
 DEFAULT_PANEL_TITLE="Painel Imobiliário"
 DEFAULT_PANEL_ADMIN_USER="clebercorretor"
@@ -709,8 +707,6 @@ set_env_value PANEL_DOMAIN "$PANEL_DOMAIN"
 set_env_value FORM_DOMAIN "$DEFAULT_FORM_DOMAIN"
 set_env_value GALLERY_DOMAIN "$DEFAULT_GALLERY_DOMAIN"
 set_env_value IMAGES_DOMAIN "$DEFAULT_IMAGES_DOMAIN"
-set_env_value FILES_DOMAIN "$DEFAULT_FILES_DOMAIN"
-set_env_value API_DOMAIN "$DEFAULT_API_DOMAIN"
 set_env_value SETUP_CONTACT_EMAIL "$SETUP_EMAIL"
 set_env_value APP_NAME "${APP_NAME:-$DEFAULT_APP_NAME}"
 set_env_value PANEL_TITLE "${PANEL_TITLE:-$DEFAULT_PANEL_TITLE}"
@@ -743,7 +739,7 @@ if [[ "$CADDY_MODE" == "indisponivel" ]]; then
     CADDY_MODE="$(check_caddy_mode)"
   fi
 fi
-prepare_caddy_config "$PANEL_DOMAIN" "$DEFAULT_FORM_DOMAIN" "$DEFAULT_GALLERY_DOMAIN" "$DEFAULT_IMAGES_DOMAIN" "$DEFAULT_FILES_DOMAIN" "$DEFAULT_API_DOMAIN" "$APP_PORT_VALUE" || true
+prepare_caddy_config "$PANEL_DOMAIN" "$DEFAULT_FORM_DOMAIN" "$DEFAULT_GALLERY_DOMAIN" "$DEFAULT_IMAGES_DOMAIN" "$APP_PORT_VALUE" || true
 if [[ -f "$CADDY_OUTPUT" ]]; then
   echo "Config Caddy pronta em: $CADDY_OUTPUT"
   publish_caddy_file || exit 1
@@ -790,8 +786,6 @@ Resumo final:
 - Formulário sugerido: https://$DEFAULT_FORM_DOMAIN
 - Galeria sugerida: https://$DEFAULT_GALLERY_DOMAIN
 - Imagens sugerido: https://$DEFAULT_IMAGES_DOMAIN
-- Files sugerido: https://$DEFAULT_FILES_DOMAIN
-- API sugerido: https://$DEFAULT_API_DOMAIN
 - E-mail do setup: $SETUP_EMAIL
 - Login inicial do painel: ${PANEL_ADMIN_USER_INPUT} / ${PANEL_ADMIN_PASSWORD_INPUT}
 - IP público validado: $PUBLIC_IP
