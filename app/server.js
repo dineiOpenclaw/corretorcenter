@@ -1085,7 +1085,10 @@ function resolveMediaRoot() {
 const mediaRoot = resolveMediaRoot();
 fs.mkdirSync(mediaRoot, { recursive: true });
 app.use('/files', express.static(mediaRoot));
-app.use('/painel', auth);
+app.use('/painel', (req, res, next) => {
+  if (req.path.startsWith('/imoveis-pdf/')) return next();
+  return auth(req, res, next);
+});
 app.get('/', (req, res) => {
   const host = String(req.headers.host || '').toLowerCase();
   const galleryDomain = getGalleryDomain();
