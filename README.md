@@ -11,7 +11,15 @@ Você configura isso no **Nginx Proxy Manager (NPM)**, e o instalador cuida só 
 
 ### Etapas (ordem recomendada)
 
-#### 1) Nginx Proxy Manager (pré-requisito)
+#### 1) Liberar portas no firewall (antes do Nginx Proxy Manager)
+Rode este comando **antes** de instalar o NPM para evitar falhas de SSL por portas fechadas.
+
+Ubuntu/Debian (iptables + persistência após reboot):
+```bash
+sudo bash -lc 'set -e; apt-get update; apt-get install -y iptables-persistent; iptables -C INPUT -p tcp --dport 22 -j ACCEPT 2>/dev/null || iptables -I INPUT 1 -p tcp --dport 22 -j ACCEPT; iptables -C INPUT -p tcp --dport 80 -j ACCEPT 2>/dev/null || iptables -I INPUT 1 -p tcp --dport 80 -j ACCEPT; iptables -C INPUT -p tcp --dport 81 -j ACCEPT 2>/dev/null || iptables -I INPUT 1 -p tcp --dport 81 -j ACCEPT; iptables -C INPUT -p tcp --dport 443 -j ACCEPT 2>/dev/null || iptables -I INPUT 1 -p tcp --dport 443 -j ACCEPT; iptables -C INPUT -p tcp --dport 5180 -j ACCEPT 2>/dev/null || iptables -I INPUT 1 -p tcp --dport 5180 -j ACCEPT; mkdir -p /etc/iptables; iptables-save > /etc/iptables/rules.v4'
+```
+
+#### 2) Nginx Proxy Manager (pré-requisito)
 Na VPS, tenha o NPM instalado e acessível por um subdomínio (ex.: `proxy.seudominio.com`) com HTTPS.
 
 No painel do NPM, crie os subdomínios do CorretorCenter apontando para o app:
@@ -20,7 +28,7 @@ No painel do NPM, crie os subdomínios do CorretorCenter apontando para o app:
 - `galeria.seudominio.com` → `http://127.0.0.1:5180`
 - `imagens.seudominio.com` → `http://127.0.0.1:5180`
 
-#### 2) Instalar Git na VPS
+#### 3) Instalar Git na VPS
 Ubuntu/Debian:
 ```bash
 sudo apt update && sudo apt install -y git
@@ -31,22 +39,22 @@ Oracle Linux/RHEL/Fedora:
 sudo dnf install -y git
 ```
 
-#### 3) Verificar se o Git foi instalado
+#### 4) Verificar se o Git foi instalado
 ```bash
 git --version
 ```
 
-#### 4) Clonar o repositório
+#### 5) Clonar o repositório
 ```bash
 git clone https://github.com/dineiOpenclaw/corretorcenter.git
 ```
 
-#### 5) Entrar na pasta clonada
+#### 6) Entrar na pasta clonada
 ```bash
 cd corretorcenter
 ```
 
-#### 6) Rodar o script de ajuste do .env
+#### 7) Rodar o script de ajuste do .env
 ```bash
 ./scripts/configure-env.sh
 ```
@@ -56,7 +64,7 @@ Como o script funciona:
 - pergunta usuário e senha do painel
 - atualiza o arquivo `.env` (somente as chaves relacionadas)
 
-#### 7) Rodar o instalador
+#### 8) Rodar o instalador
 ```bash
 ./scripts/install-wizard.sh
 ```
