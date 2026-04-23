@@ -226,6 +226,29 @@ cleanup_runtime_packages() {
   fi
 }
 
+cleanup_listening_ports() {
+  local ports=(5180 80 443)
+  if command -v ss >/dev/null 2>&1; then
+    for port in "${ports[@]}"; do
+      local pids
+      pids="$(ss -ltnp "sport = :$port" 2>/dev/null | awk 'match($0, /pid=([0-9]+)/, m) { print m[1] }' | sort -u)"
+      for pid in $pids; do
+        if [[ -n "$pid" ]]; then
+          log "Finalizando processo $pid que está usando a porta $port"
+          kill "$pid" 2>/dev/null || true
+          sleep 1
+          kill -9 "$pid" 2>/dev/null || true
+        fi
+      done
+    done
+  fi
+  if command -v fuser >/dev/null 2>&1; then
+    for port in "${ports[@]}"; do
+      fuser -k "${port}/tcp" 2>/dev/null || true
+    done
+  fi
+}
+
 cleanup_firewall() {
   if command -v iptables >/dev/null 2>&1; then
     for port in 80 443; do
@@ -285,6 +308,7 @@ main() {
   cleanup_postgres
   cleanup_runtime_packages
   cleanup_firewall
+  cleanup_listening_ports
   cleanup_generated_files
   cleanup_app_dir "$APP_DIR_DEFAULT"
   [[ "$APP_DIR_FALLBACK" != "$APP_DIR_DEFAULT" ]] && cleanup_app_dir "$APP_DIR_FALLBACK"
