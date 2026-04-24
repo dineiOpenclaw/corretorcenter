@@ -22,11 +22,25 @@ sudo bash -lc 'set -e; apt-get update; apt-get install -y iptables-persistent; i
 #### 2) Nginx Proxy Manager (pré-requisito)
 Na VPS, tenha o NPM instalado e acessível por um subdomínio (ex.: `proxy.seudominio.com`) com HTTPS.
 
-No painel do NPM, crie os subdomínios do CorretorCenter apontando para o app:
-- `painel.seudominio.com` → `http://127.0.0.1:5180`
-- `form.seudominio.com` → `http://127.0.0.1:5180`
-- `galeria.seudominio.com` → `http://127.0.0.1:5180`
-- `imagens.seudominio.com` → `http://127.0.0.1:5180`
+No painel do NPM, crie os subdomínios do CorretorCenter apontando para o app.
+
+**Importante:** se o Nginx Proxy Manager estiver rodando em Docker, não use `127.0.0.1` no campo **Forward Hostname / IP**. Dentro do container, `127.0.0.1` aponta para o próprio container, não para a VPS host.
+
+Nesse caso, use o **IP da bridge do Docker no host** (normalmente algo como `172.17.0.1`).
+
+Comando para descobrir o IP da bridge do Docker no host:
+```bash
+ip addr show docker0
+```
+
+Exemplo de retorno esperado:
+- `inet 172.17.0.1/16`
+
+Então, no NPM em Docker, os subdomínios devem apontar assim:
+- `painel.seudominio.com` → `http://172.17.0.1:5180`
+- `form.seudominio.com` → `http://172.17.0.1:5180`
+- `galeria.seudominio.com` → `http://172.17.0.1:5180`
+- `imagens.seudominio.com` → `http://172.17.0.1:5180`
 
 #### 3) Instalar Git na VPS
 Ubuntu/Debian:
