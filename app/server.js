@@ -3969,7 +3969,7 @@ if (requiredPanelCreds.length > 0) {
 }
 
 const port = Number(process.env.APP_PORT || 5180);
-app.listen(port, '127.0.0.1', () => {
+app.listen(port, '0.0.0.0', () => {
   console.log(`${getAppDisplayName()} em http://127.0.0.1:${port}`);
 });
 
