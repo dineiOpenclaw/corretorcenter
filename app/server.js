@@ -22,6 +22,15 @@ const pool = new Pool({
 
 app.use(express.urlencoded({ extended: true }));
 
+function parseCookies(header = '') {
+  return String(header || '').split(';').reduce((acc, part) => {
+    const [key, ...rest] = part.split('=');
+    if (!key) return acc;
+    acc[String(key).trim()] = decodeURIComponent(rest.join('=').trim());
+    return acc;
+  }, {});
+}
+
 function normalizarNumeroFormulario(value, { decimal = false } = {}) {
   const raw = String(value || '').trim();
   if (!raw || raw === "'" || raw === '"') return '';
@@ -430,6 +439,48 @@ function renderRecoveryResetPage({ error = '', token = '', username = '', passwo
   });
 }
 
+function renderSystemHomePage({ error = '', info = '' } = {}) {
+  const company = process.env.PANEL_TITLE || getAppDisplayName();
+  return formShell({
+    title: company,
+    subtitle: 'Plataforma de gestão imobiliária',
+    content: `
+      <section class="card" style="overflow:hidden;">
+        <div style="display:grid;grid-template-columns:minmax(0,1.2fr) minmax(320px,420px);gap:24px;align-items:center;">
+          <div>
+            <img src="/assets/logo-login.jpg" alt="Logo ${esc(company)}" style="max-width:240px;width:100%;height:auto;display:block;margin-bottom:18px;object-fit:contain;" />
+            <h2 class="page-title">${esc(company)}</h2>
+            <p class="page-subtitle" style="margin-bottom:20px;">Sistema profissional para gestão, atendimento e operação do seu negócio imobiliário.</p>
+            <div class="search-block">
+              <h3 style="margin-top:0;">Contato</h3>
+              <div class="maintenance-list">
+                <div class="maintenance-item"><strong>Fone / WhatsApp</strong><span>(51) 980357562</span></div>
+                <div class="maintenance-item"><strong>E-mail</strong><span>contato@codeflowsoluctions.com</span></div>
+                <div class="maintenance-item"><strong>Site</strong><span>www.codeflowsoluctions.com</span></div>
+              </div>
+            </div>
+          </div>
+          <div class="search-block">
+            <h3 style="margin-top:0;">Acessar o sistema</h3>
+            ${error ? `<div class="card form-error">${esc(error)}</div>` : ''}
+            ${info ? `<div class="card" style="border:1px solid #bbf7d0;background:#f0fdf4;color:#166534;font-weight:700;">${esc(info)}</div>` : ''}
+            <form method="post" action="/entrar">
+              <div class="grid-2">
+                <div class="field-full"><label>Usuário</label><input name="usuario" autocomplete="username" required /></div>
+                <div class="field-full"><label>Senha</label><input type="password" name="senha" autocomplete="current-password" required /></div>
+              </div>
+              <div class="filters-actions" style="margin-top:18px;">
+                <button type="submit">Entrar no painel</button>
+                <a class="btn-link" href="/recuperar-acesso">Recuperar acesso</a>
+              </div>
+            </form>
+          </div>
+        </div>
+      </section>
+    `,
+  });
+}
+
 function getExportErrorPrefix() {
   return process.env.EXPORT_ERROR_PREFIX || 'Erro ao gerar exportação';
 }
@@ -458,19 +509,46 @@ async function carregarCategoriasAtivas() {
   return pool.query('SELECT slug, nome_exibicao FROM categorias_imovel WHERE ativa IS TRUE ORDER BY nome_exibicao');
 }
 
+function authCookieName() {
+  return 'cc_auth';
+}
+
+function authCookieSignature() {
+  const secretBase = `${process.env.PANEL_ADMIN_USER || ''}:${process.env.PANEL_ADMIN_PASSWORD || ''}:${process.env.APP_NAME || 'corretorcenter'}`;
+  return crypto.createHash('sha256').update(secretBase).digest('hex');
+}
+
+function hasAuthenticatedSession(req) {
+  const cookies = parseCookies(req.headers.cookie || '');
+  return cookies[authCookieName()] === authCookieSignature();
+}
+
+function setAuthenticatedSession(res) {
+  res.setHeader('Set-Cookie', `${authCookieName()}=${authCookieSignature()}; Path=/; HttpOnly; SameSite=Lax; Max-Age=28800`);
+}
+
+function clearAuthenticatedSession(res) {
+  res.setHeader('Set-Cookie', `${authCookieName()}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`);
+}
+
+function hasValidPanelCredentials(req) {
+  if (hasAuthenticatedSession(req)) return true;
+  const panelUser = String(process.env.PANEL_ADMIN_USER || '').trim();
+  const panelPass = String(process.env.PANEL_ADMIN_PASSWORD || '').trim();
+  if (!panelUser || !panelPass) return false;
+  const user = basicAuth(req);
+  return Boolean(user && user.name === panelUser && user.pass === panelPass);
+}
+
 function auth(req, res, next) {
   const panelUser = String(process.env.PANEL_ADMIN_USER || '').trim();
   const panelPass = String(process.env.PANEL_ADMIN_PASSWORD || '').trim();
   if (!panelUser || !panelPass) {
     return res.status(500).send('Credenciais do painel não configuradas. Defina PANEL_ADMIN_USER e PANEL_ADMIN_PASSWORD antes de subir o app.');
   }
-  const user = basicAuth(req);
-  if (!user || user.name !== panelUser || user.pass !== panelPass) {
-    const link = recoveryBaseUrl(req) ? `${recoveryBaseUrl(req)}/recuperar-acesso` : '/recuperar-acesso';
-    res.set('WWW-Authenticate', `Basic realm="${getBasicAuthRealm()}"`);
-    return res.status(401).send(`${getAuthRequiredMessage()}. Para recuperar o acesso, abra: ${link}`);
-  }
-  next();
+  if (hasValidPanelCredentials(req)) return next();
+  const link = recoveryBaseUrl(req) ? `${recoveryBaseUrl(req)}/recuperar-acesso` : '/recuperar-acesso';
+  return res.redirect(`/?erro=${encodeURIComponent(`${getAuthRequiredMessage()}. Se precisar, recupere o acesso em ${link}`)}`);
 }
 
 function validarSenhaPainel(senha) {
@@ -1129,6 +1207,7 @@ function shell({ title, subtitle = '', active = 'inicio', content }) {
           <a href="/painel/configuracoes" class="${active === 'configuracoes' ? 'active' : ''}">Configurações</a>
           <a href="/painel/manutencao" class="${active === 'manutencao' ? 'active' : ''}">Manutenção</a>
           <a href="/painel/backup-restaurar" class="${active === 'backup-restaurar' ? 'active' : ''}">Backup/Restaurar</a>
+          <a href="/logout">Sair</a>
         </nav>
       </div>
     </header>
@@ -1245,7 +1324,31 @@ app.get('/', (req, res) => {
       `,
     }));
   }
+  if (hasValidPanelCredentials(req)) return res.redirect('/painel');
+  return res.send(renderSystemHomePage({
+    error: req.query.erro ? decodeURIComponent(req.query.erro) : '',
+    info: req.query.info ? decodeURIComponent(req.query.info) : '',
+  }));
+});
+
+app.post('/entrar', (req, res) => {
+  const usuario = String(req.body.usuario || '').trim();
+  const senha = String(req.body.senha || '').trim();
+  const panelUser = String(process.env.PANEL_ADMIN_USER || '').trim();
+  const panelPass = String(process.env.PANEL_ADMIN_PASSWORD || '').trim();
+  if (!usuario || !senha) {
+    return res.status(400).send(renderSystemHomePage({ error: 'Informe usuário e senha para entrar.' }));
+  }
+  if (usuario !== panelUser || senha !== panelPass) {
+    return res.status(401).send(renderSystemHomePage({ error: 'Usuário ou senha inválidos.' }));
+  }
+  setAuthenticatedSession(res);
   return res.redirect('/painel');
+});
+
+app.get('/logout', (req, res) => {
+  clearAuthenticatedSession(res);
+  return res.redirect('/?info=' + encodeURIComponent('Sessão encerrada com sucesso.'));
 });
 
 app.get('/recuperar-acesso', (req, res) => {
