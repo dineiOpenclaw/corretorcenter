@@ -1217,6 +1217,7 @@ function shell({ title, subtitle = '', active = 'inicio', content }) {
         </div>
         <nav class="panel-menu">
           <a href="/painel" class="${active === 'inicio' ? 'active' : ''}">Início</a>
+          <a href="/painel/funcionarios" class="${['funcionarios', 'novo-funcionario', 'cargos-funcionarios'].includes(active) ? 'active' : ''}">Funcionários</a>
           <a href="/painel/imoveis" class="${active === 'imoveis' ? 'active' : ''}">Pesquisar imóveis</a>
           <a href="/painel/imoveis/novo" class="${active === 'novo-imovel' ? 'active' : ''}">Cadastrar imóvel</a>
           <a href="/painel/categorias" class="${active === 'categorias' ? 'active' : ''}">Categorias</a>
@@ -2980,6 +2981,459 @@ async function removerPastaCategoriaSeVazia(client, categoriaSlug) {
   fs.rmSync(pastaCategoria, { recursive: true, force: true });
 }
 
+function cargoFuncionarioFormValores(source = {}) {
+  return {
+    nome: source.nome || '',
+    ativo: source.ativo === false || source.ativo === 'false' || source.ativo === '0' ? '' : '1',
+  };
+}
+
+function prepararCargoFuncionarioPayload(source = {}) {
+  return {
+    nome: String(source.nome || '').trim(),
+    ativo: source.ativo === false || source.ativo === 'false' || source.ativo === '0' ? false : true,
+  };
+}
+
+function funcionarioFormValores(source = {}) {
+  return {
+    nome: source.nome || '',
+    sobrenome: source.sobrenome || '',
+    telefone: source.telefone || '',
+    email: source.email || '',
+    endereco: source.endereco || '',
+    cargo_id: source.cargo_id || '',
+  };
+}
+
+function validarCamposObrigatoriosFuncionario(payload) {
+  const campos = [
+    ['nome', 'nome'],
+    ['sobrenome', 'sobrenome'],
+    ['telefone', 'telefone'],
+    ['cargo_id', 'cargo'],
+  ];
+  return campos.find(([key]) => !String(payload[key] || '').trim()) || null;
+}
+
+function fieldErrorClass(field, missingField) {
+  return missingField === field ? 'input-error' : '';
+}
+
+async function gerarCodigoFuncionario(client) {
+  const usados = await client.query("SELECT codigo FROM funcionarios WHERE codigo LIKE 'COD%' ORDER BY codigo FOR UPDATE");
+  const numeros = usados.rows
+    .map((r) => Number(String(r.codigo || '').replace(/^COD/, '')))
+    .filter((n) => !Number.isNaN(n));
+  const proximo = (Math.max(0, ...numeros) + 1).toString().padStart(3, '0');
+  return `COD${proximo}`;
+}
+
+app.get('/painel/funcionarios', auth, async (req, res) => {
+  const [totais, cargos] = await Promise.all([
+    pool.query('SELECT count(*)::int AS total FROM funcionarios'),
+    pool.query('SELECT count(*)::int AS total FROM cargos_funcionario WHERE ativo IS TRUE'),
+  ]);
+  res.send(shell({
+    title: 'Funcionários',
+    subtitle: 'Módulo para cadastro, pesquisa e gestão de cargos dos funcionários.',
+    active: 'funcionarios',
+    content: `
+      <section class="stats stats-home">
+        <article class="stat-card"><span class="muted">Funcionários cadastrados</span><strong>${totais.rows[0].total}</strong></article>
+        <article class="stat-card"><span class="muted">Cargos ativos</span><strong>${cargos.rows[0].total}</strong></article>
+      </section>
+      <section class="card">
+        <div class="results-grid">
+          <article class="result-card">
+            <h4>Cadastrar funcionário</h4>
+            <p class="muted">Cadastro operacional com código automático, cargo e validação de campos obrigatórios.</p>
+            <div class="result-actions"><a class="btn-link" href="/painel/funcionarios/novo">Abrir cadastro</a></div>
+          </article>
+          <article class="result-card">
+            <h4>Pesquisar funcionário</h4>
+            <p class="muted">Busca por nome, telefone e cargo, com edição e exclusão protegidas por senha.</p>
+            <div class="result-actions"><a class="btn-link" href="/painel/funcionarios/pesquisar">Abrir pesquisa</a></div>
+          </article>
+          <article class="result-card">
+            <h4>Criar/Editar cargo</h4>
+            <p class="muted">Mesmo padrão das categorias de imóveis, com ativar, desativar e exclusão bloqueada quando houver vínculo.</p>
+            <div class="result-actions"><a class="btn-link" href="/painel/funcionarios/cargos">Abrir cargos</a></div>
+          </article>
+        </div>
+      </section>
+    `,
+  }));
+});
+
+app.get('/painel/funcionarios/cargos', auth, async (req, res) => {
+  const erro = req.query.erro ? decodeURIComponent(req.query.erro) : '';
+  const v = cargoFuncionarioFormValores(req.query);
+  const cargos = await pool.query(`
+    SELECT c.*, count(f.id)::int AS total_funcionarios
+    FROM cargos_funcionario c
+    LEFT JOIN funcionarios f ON f.cargo_id = c.id
+    GROUP BY c.id
+    ORDER BY c.nome
+  `);
+  const rows = cargos.rows.map((item) => `
+    <article class="result-card">
+      <h4>${esc(item.nome)}</h4>
+      <div class="result-meta">
+        <div><strong>Status</strong>${item.ativo ? 'Ativo' : 'Inativo'}</div>
+        <div><strong>Funcionários vinculados</strong>${item.total_funcionarios}</div>
+      </div>
+      <div class="result-actions">
+        <form method="post" action="/painel/funcionarios/cargos-editar-senha/${item.id}" class="inline-form" onsubmit="return confirmarSenhaAcaoCargoFuncionario(event, 'editar')">
+          <input type="hidden" name="senha" value="" />
+          <button type="submit" class="btn-secondary">Editar cargo</button>
+        </form>
+        <form method="post" action="/painel/funcionarios/cargos-status/${item.id}" class="inline-form" onsubmit="return confirmarSenhaAcaoCargoFuncionario(event, '${item.ativo ? 'desativar' : 'ativar'}')">
+          <input type="hidden" name="senha" value="" />
+          <input type="hidden" name="ativo" value="${item.ativo ? '0' : '1'}" />
+          <button type="submit" class="btn-secondary">${item.ativo ? 'Desativar' : 'Ativar'}</button>
+        </form>
+        <form method="post" action="/painel/funcionarios/cargos-excluir/${item.id}" class="inline-form" onsubmit="return confirmarSenhaAcaoCargoFuncionario(event, 'excluir')">
+          <input type="hidden" name="senha" value="" />
+          <button type="submit" class="btn-danger">Excluir cargo</button>
+        </form>
+      </div>
+    </article>
+  `).join('');
+
+  res.send(shell({
+    title: 'Cargos de funcionários',
+    subtitle: 'Mesmo padrão das categorias, com controle de ativação e exclusão segura.',
+    active: 'cargos-funcionarios',
+    content: `
+      ${renderFormError(erro)}
+      <section class="card">
+        <h3>Novo cargo</h3>
+        <form method="post" action="/painel/funcionarios/cargos/novo">
+          <div class="grid">
+            <div><label>Nome do cargo</label><input name="nome" value="${esc(v.nome)}" required /></div>
+            <div><label>Ativo</label><select name="ativo"><option value="1" ${v.ativo ? 'selected' : ''}>Sim</option><option value="0" ${!v.ativo ? 'selected' : ''}>Não</option></select></div>
+          </div>
+          <div class="filters-actions"><button type="submit">Cadastrar cargo</button></div>
+        </form>
+      </section>
+      <section class="card">
+        <h3>Lista de cargos</h3>
+        <div class="results-grid">${rows || '<div class="empty">Nenhum cargo cadastrado.</div>'}</div>
+      </section>
+      <script>
+        function confirmarSenhaAcaoCargoFuncionario(event, acao) {
+          const senha = window.prompt('Digite a senha para ' + acao + ' o cargo:');
+          if (!senha) return false;
+          if (acao === 'excluir') {
+            const confirmar = window.confirm('Confirma excluir este cargo?');
+            if (!confirmar) return false;
+          }
+          event.target.querySelector('input[name="senha"]').value = senha;
+          return true;
+        }
+      </script>
+    `,
+  }));
+});
+
+app.post('/painel/funcionarios/cargos/novo', auth, async (req, res) => {
+  const b = cargoFuncionarioFormValores(req.body);
+  const payload = prepararCargoFuncionarioPayload(req.body);
+  if (!payload.nome) {
+    const qs = new URLSearchParams({ ...b, erro: 'Informe o nome do cargo.' }).toString();
+    return res.redirect(`/painel/funcionarios/cargos?${qs}`);
+  }
+  try {
+    await pool.query('INSERT INTO cargos_funcionario (nome, ativo) VALUES ($1, $2)', [payload.nome, payload.ativo]);
+    res.redirect('/painel/funcionarios/cargos');
+  } catch (error) {
+    const mensagem = error.code === '23505' ? 'Já existe cargo com esse nome.' : error.message;
+    const qs = new URLSearchParams({ ...b, erro: mensagem }).toString();
+    res.redirect(`/painel/funcionarios/cargos?${qs}`);
+  }
+});
+
+app.post('/painel/funcionarios/cargos-editar-senha/:id', auth, async (req, res) => {
+  if (!validarSenhaPainel(req.body.senha)) return res.status(403).send('Senha inválida');
+  res.redirect(`/painel/funcionarios/cargos-editar/${req.params.id}?senha=${encodeURIComponent(req.body.senha)}`);
+});
+
+app.get('/painel/funcionarios/cargos-editar/:id', auth, async (req, res) => {
+  const erro = req.query.erro ? decodeURIComponent(req.query.erro) : '';
+  const result = await pool.query('SELECT * FROM cargos_funcionario WHERE id = $1', [req.params.id]);
+  if (!result.rows.length) return res.status(404).send('Cargo não encontrado');
+  const item = { ...result.rows[0], ...req.query };
+  const v = cargoFuncionarioFormValores(item);
+  res.send(shell({
+    title: `Editar cargo ${item.nome}`,
+    subtitle: 'Edição de cargo com proteção por senha.',
+    active: 'cargos-funcionarios',
+    content: `
+      ${renderFormError(erro)}
+      <section class="card">
+        <form method="post" action="/painel/funcionarios/cargos-salvar/${item.id}?senha=${encodeURIComponent(req.query.senha || '')}">
+          <div class="grid">
+            <div><label>Nome do cargo</label><input name="nome" value="${esc(v.nome)}" required /></div>
+            <div><label>Ativo</label><select name="ativo"><option value="1" ${v.ativo ? 'selected' : ''}>Sim</option><option value="0" ${!v.ativo ? 'selected' : ''}>Não</option></select></div>
+          </div>
+          <div class="filters-actions">
+            <button type="submit">Salvar cargo</button>
+            <a href="/painel/funcionarios/cargos"><button type="button" class="btn-secondary">Cancelar</button></a>
+          </div>
+        </form>
+      </section>
+    `,
+  }));
+});
+
+app.post('/painel/funcionarios/cargos-salvar/:id', auth, async (req, res) => {
+  if (!validarSenhaPainel(req.query.senha || req.body.senha)) return res.status(403).send('Senha inválida');
+  const b = cargoFuncionarioFormValores(req.body);
+  const payload = prepararCargoFuncionarioPayload(req.body);
+  if (!payload.nome) {
+    const qs = new URLSearchParams({ ...b, erro: 'Informe o nome do cargo.' }).toString();
+    return res.redirect(`/painel/funcionarios/cargos-editar/${req.params.id}?${qs}`);
+  }
+  try {
+    await pool.query('UPDATE cargos_funcionario SET nome = $2, ativo = $3, updated_at = now() WHERE id = $1', [req.params.id, payload.nome, payload.ativo]);
+    res.redirect('/painel/funcionarios/cargos');
+  } catch (error) {
+    const mensagem = error.code === '23505' ? 'Já existe cargo com esse nome.' : error.message;
+    const qs = new URLSearchParams({ ...b, erro: mensagem }).toString();
+    res.redirect(`/painel/funcionarios/cargos-editar/${req.params.id}?${qs}`);
+  }
+});
+
+app.post('/painel/funcionarios/cargos-status/:id', auth, async (req, res) => {
+  if (!validarSenhaPainel(req.body.senha)) return res.status(403).send('Senha inválida');
+  await pool.query('UPDATE cargos_funcionario SET ativo = $2, updated_at = now() WHERE id = $1', [req.params.id, req.body.ativo === '1']);
+  res.redirect('/painel/funcionarios/cargos');
+});
+
+app.post('/painel/funcionarios/cargos-excluir/:id', auth, async (req, res) => {
+  if (!validarSenhaPainel(req.body.senha)) return res.status(403).send('Senha inválida');
+  const vinculos = await pool.query('SELECT count(*)::int AS total FROM funcionarios WHERE cargo_id = $1', [req.params.id]);
+  if (vinculos.rows[0].total > 0) {
+    return res.redirect(`/painel/funcionarios/cargos?erro=${encodeURIComponent('Não é possível excluir cargo com funcionários vinculados.')}`);
+  }
+  await pool.query('DELETE FROM cargos_funcionario WHERE id = $1', [req.params.id]);
+  res.redirect('/painel/funcionarios/cargos');
+});
+
+app.get('/painel/funcionarios/novo', auth, async (req, res) => {
+  const erro = req.query.erro ? decodeURIComponent(req.query.erro) : '';
+  const ok = req.query.ok ? decodeURIComponent(req.query.ok) : '';
+  const missingField = req.query.missingField ? String(req.query.missingField) : '';
+  const v = funcionarioFormValores(req.query);
+  const cargos = await pool.query('SELECT id, nome FROM cargos_funcionario WHERE ativo IS TRUE ORDER BY nome');
+  res.send(shell({
+    title: 'Cadastrar funcionário',
+    subtitle: 'Cadastro com código automático, permanência na página e limpeza manual quando necessário.',
+    active: 'novo-funcionario',
+    content: `
+      ${renderFormError(erro || ok)}
+      <section class="card">
+        <form method="post" action="/painel/funcionarios/novo">
+          <div class="grid">
+            <div><label>Nome ${missingField === 'nome' ? '<span class="field-error-marker">*</span>' : ''}</label><input name="nome" value="${esc(v.nome)}" class="${fieldErrorClass('nome', missingField)}" required /></div>
+            <div><label>Sobrenome ${missingField === 'sobrenome' ? '<span class="field-error-marker">*</span>' : ''}</label><input name="sobrenome" value="${esc(v.sobrenome)}" class="${fieldErrorClass('sobrenome', missingField)}" required /></div>
+            <div><label>Telefone ${missingField === 'telefone' ? '<span class="field-error-marker">*</span>' : ''}</label><input name="telefone" value="${v.telefone ? esc(formatarTelefone(v.telefone)) : ''}" class="${fieldErrorClass('telefone', missingField)}" placeholder="(51) 98035-7562" inputmode="numeric" oninput="let v=this.value.replace(/\D/g,'').slice(0,11);this.value=v.length>10?('('+v.slice(0,2)+') '+v.slice(2,7)+(v.length>7?'-'+v.slice(7):'')):v.length>6?('('+v.slice(0,2)+') '+v.slice(2,6)+(v.length>6?'-'+v.slice(6):'')):v.length>2?('('+v.slice(0,2)+') '+v.slice(2)):v;" required /></div>
+            <div><label>E-mail</label><input type="email" name="email" value="${esc(v.email)}" /></div>
+            <div class="field-full"><label>Endereço</label><input name="endereco" value="${esc(v.endereco)}" /></div>
+            <div><label>Cargo ${missingField === 'cargo_id' ? '<span class="field-error-marker">*</span>' : ''}</label><select name="cargo_id" class="${fieldErrorClass('cargo_id', missingField)}" required><option value="">Selecione</option>${cargos.rows.map((cargo) => `<option value="${cargo.id}" ${v.cargo_id === cargo.id ? 'selected' : ''}>${esc(cargo.nome)}</option>`).join('')}</select></div>
+            <div style="display:flex;align-items:end;"><a class="btn-link" href="/painel/funcionarios/cargos">Novo cargo</a></div>
+          </div>
+          <div class="filters-actions">
+            <button type="submit">Salvar cadastro</button>
+            <a href="/painel/funcionarios/novo"><button type="button" class="btn-secondary">Cancelar</button></a>
+          </div>
+        </form>
+      </section>
+    `,
+  }));
+});
+
+app.post('/painel/funcionarios/novo', auth, async (req, res) => {
+  const b = funcionarioFormValores(req.body);
+  const payload = {
+    nome: String(b.nome || '').trim(),
+    sobrenome: String(b.sobrenome || '').trim(),
+    telefone: normalizarTelefone(b.telefone),
+    email: String(b.email || '').trim(),
+    endereco: String(b.endereco || '').trim(),
+    cargo_id: String(b.cargo_id || '').trim(),
+  };
+  const obrigatorio = validarCamposObrigatoriosFuncionario(payload);
+  if (obrigatorio) {
+    const qs = new URLSearchParams({ ...b, erro: `Preencha o campo ${obrigatorio[1]}.`, missingField: obrigatorio[0] }).toString();
+    return res.redirect(`/painel/funcionarios/novo?${qs}`);
+  }
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const codigo = await gerarCodigoFuncionario(client);
+    await client.query(`INSERT INTO funcionarios (codigo, nome, sobrenome, telefone, email, endereco, cargo_id) VALUES ($1,$2,$3,$4,$5,$6,$7)`, [codigo, payload.nome, payload.sobrenome, payload.telefone, payload.email || null, payload.endereco || null, payload.cargo_id]);
+    await client.query('COMMIT');
+    return res.redirect(`/painel/funcionarios/novo?ok=${encodeURIComponent(`Funcionário ${codigo} cadastrado com sucesso.`)}`);
+  } catch (error) {
+    try { await client.query('ROLLBACK'); } catch {}
+    const mensagem = error.code === '23505' ? 'Já existe funcionário com esse código.' : error.message;
+    const qs = new URLSearchParams({ ...b, erro: mensagem }).toString();
+    return res.redirect(`/painel/funcionarios/novo?${qs}`);
+  } finally {
+    client.release();
+  }
+});
+
+app.get('/painel/funcionarios/pesquisar', auth, async (req, res) => {
+  const filtros = {
+    nome: String(req.query.nome || '').trim(),
+    telefone: String(req.query.telefone || '').trim(),
+    cargo_id: String(req.query.cargo_id || '').trim(),
+  };
+  const [cargos, sugestoes] = await Promise.all([
+    pool.query('SELECT id, nome FROM cargos_funcionario ORDER BY nome'),
+    pool.query('SELECT nome, sobrenome, telefone FROM funcionarios ORDER BY nome, sobrenome LIMIT 200'),
+  ]);
+  const where = [];
+  const params = [];
+  const add = (sql, value) => { params.push(value); where.push(sql.replace('$X', `$${params.length}`)); };
+  if (filtros.nome) add("concat_ws(' ', f.nome, f.sobrenome) ILIKE $X", `%${filtros.nome}%`);
+  if (filtros.telefone) add("regexp_replace(f.telefone, '\\D', '', 'g') ILIKE $X", `%${normalizarTelefone(filtros.telefone)}%`);
+  if (filtros.cargo_id) add('f.cargo_id = $X', filtros.cargo_id);
+  const temFiltros = Object.values(filtros).some(Boolean);
+  const result = temFiltros ? await pool.query(`
+    SELECT f.*, c.nome AS cargo_nome
+    FROM funcionarios f
+    JOIN cargos_funcionario c ON c.id = f.cargo_id
+    ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
+    ORDER BY f.data_cadastro DESC, f.nome, f.sobrenome
+    LIMIT 100
+  `, params) : { rows: [] };
+  const rows = result.rows.map((item) => `
+    <article class="result-card">
+      <h4>${esc(item.nome)} ${esc(item.sobrenome)}</h4>
+      <div class="result-meta">
+        <div><strong>Código</strong>${esc(item.codigo)}</div>
+        <div><strong>Telefone</strong>${esc(formatarTelefone(item.telefone))}</div>
+        <div><strong>E-mail</strong>${esc(item.email || '-')}</div>
+        <div><strong>Cargo</strong>${esc(item.cargo_nome || '-')}</div>
+        <div><strong>Data cadastro</strong>${formatarDataPtBr(item.data_cadastro)}</div>
+        <div><strong>Data alteração</strong>${formatarDataPtBr(item.data_alteracao)}</div>
+      </div>
+      <div class="card" style="margin-top:16px;padding:14px;"><strong>Endereço</strong><p>${esc(item.endereco || '-')}</p></div>
+      <div class="result-actions">
+        <form method="post" action="/painel/funcionarios-editar-senha/${item.id}" class="inline-form" onsubmit="return confirmarSenhaAcaoFuncionario(event, 'editar')">
+          <input type="hidden" name="senha" value="" />
+          <button type="submit" class="btn-secondary">Editar funcionário</button>
+        </form>
+        <form method="post" action="/painel/funcionarios-excluir/${item.id}" class="inline-form" onsubmit="return confirmarSenhaAcaoFuncionario(event, 'excluir')">
+          <input type="hidden" name="senha" value="" />
+          <button type="submit" class="btn-danger">Excluir funcionário</button>
+        </form>
+      </div>
+    </article>
+  `).join('');
+  res.send(shell({
+    title: 'Pesquisar funcionários',
+    subtitle: 'Busca por nome, telefone e cargo.',
+    active: 'funcionarios',
+    content: `
+      <section class="card">
+        <form method="get" action="/painel/funcionarios/pesquisar">
+          <div class="grid grid-3">
+            <div><label>Nome</label><input name="nome" value="${esc(filtros.nome)}" list="funcionarios-nomes" autocomplete="off" /></div>
+            <div><label>Telefone</label><input name="telefone" value="${filtros.telefone ? esc(formatarTelefone(filtros.telefone)) : ''}" placeholder="(51) 98035-7562" inputmode="numeric" oninput="let v=this.value.replace(/\D/g,'').slice(0,11);this.value=v.length>10?('('+v.slice(0,2)+') '+v.slice(2,7)+(v.length>7?'-'+v.slice(7):'')):v.length>6?('('+v.slice(0,2)+') '+v.slice(2,6)+(v.length>6?'-'+v.slice(6):'')):v.length>2?('('+v.slice(0,2)+') '+v.slice(2)):v;" /></div>
+            <div><label>Cargo</label><select name="cargo_id"><option value="">Todos</option>${cargos.rows.map((cargo) => `<option value="${cargo.id}" ${filtros.cargo_id === cargo.id ? 'selected' : ''}>${esc(cargo.nome)}</option>`).join('')}</select></div>
+          </div>
+          <div class="filters-actions"><button type="submit">Pesquisar</button><a href="/painel/funcionarios/pesquisar">Limpar</a></div>
+        </form>
+      </section>
+      <section class="card"><h3>Resultados</h3><div class="results-grid">${rows || '<div class="empty">Nenhum funcionário encontrado.</div>'}</div></section>
+      <datalist id="funcionarios-nomes">${[...new Set(sugestoes.rows.map((item) => `${String(item.nome || '').trim()} ${String(item.sobrenome || '').trim()}`.trim()).filter(Boolean))].map((nome) => `<option value="${esc(nome)}"></option>`).join('')}</datalist>
+      <script>
+        function confirmarSenhaAcaoFuncionario(event, acao) {
+          const senha = window.prompt('Digite a senha para ' + acao + ' o funcionário:');
+          if (!senha) return false;
+          if (acao === 'excluir') {
+            const confirmar = window.confirm('Confirma excluir este funcionário?');
+            if (!confirmar) return false;
+          }
+          event.target.querySelector('input[name="senha"]').value = senha;
+          return true;
+        }
+      </script>
+    `,
+  }));
+});
+
+app.post('/painel/funcionarios-editar-senha/:id', auth, async (req, res) => {
+  if (!validarSenhaPainel(req.body.senha)) return res.status(403).send('Senha inválida');
+  res.redirect(`/painel/funcionarios-editar/${req.params.id}?senha=${encodeURIComponent(req.body.senha)}`);
+});
+
+app.get('/painel/funcionarios-editar/:id', auth, async (req, res) => {
+  const erro = req.query.erro ? decodeURIComponent(req.query.erro) : '';
+  const missingField = req.query.missingField ? String(req.query.missingField) : '';
+  const [result, cargos] = await Promise.all([
+    pool.query('SELECT * FROM funcionarios WHERE id = $1', [req.params.id]),
+    pool.query('SELECT id, nome FROM cargos_funcionario ORDER BY nome'),
+  ]);
+  if (!result.rows.length) return res.status(404).send('Funcionário não encontrado');
+  const item = { ...result.rows[0], ...req.query };
+  const v = funcionarioFormValores(item);
+  res.send(shell({
+    title: `Editar funcionário ${item.codigo}`,
+    subtitle: 'Edição protegida por senha do painel.',
+    active: 'funcionarios',
+    content: `
+      ${renderFormError(erro)}
+      <section class="card">
+        <form method="post" action="/painel/funcionarios-salvar/${item.id}?senha=${encodeURIComponent(req.query.senha || '')}">
+          <div class="grid">
+            <div><label>Código</label><input value="${esc(item.codigo)}" readonly /></div>
+            <div><label>Nome ${missingField === 'nome' ? '<span class="field-error-marker">*</span>' : ''}</label><input name="nome" value="${esc(v.nome)}" class="${fieldErrorClass('nome', missingField)}" required /></div>
+            <div><label>Sobrenome ${missingField === 'sobrenome' ? '<span class="field-error-marker">*</span>' : ''}</label><input name="sobrenome" value="${esc(v.sobrenome)}" class="${fieldErrorClass('sobrenome', missingField)}" required /></div>
+            <div><label>Telefone ${missingField === 'telefone' ? '<span class="field-error-marker">*</span>' : ''}</label><input name="telefone" value="${v.telefone ? esc(formatarTelefone(v.telefone)) : ''}" class="${fieldErrorClass('telefone', missingField)}" placeholder="(51) 98035-7562" inputmode="numeric" oninput="let v=this.value.replace(/\D/g,'').slice(0,11);this.value=v.length>10?('('+v.slice(0,2)+') '+v.slice(2,7)+(v.length>7?'-'+v.slice(7):'')):v.length>6?('('+v.slice(0,2)+') '+v.slice(2,6)+(v.length>6?'-'+v.slice(6):'')):v.length>2?('('+v.slice(0,2)+') '+v.slice(2)):v;" required /></div>
+            <div><label>E-mail</label><input type="email" name="email" value="${esc(v.email)}" /></div>
+            <div class="field-full"><label>Endereço</label><input name="endereco" value="${esc(v.endereco)}" /></div>
+            <div><label>Cargo ${missingField === 'cargo_id' ? '<span class="field-error-marker">*</span>' : ''}</label><select name="cargo_id" class="${fieldErrorClass('cargo_id', missingField)}" required><option value="">Selecione</option>${cargos.rows.map((cargo) => `<option value="${cargo.id}" ${v.cargo_id === cargo.id ? 'selected' : ''}>${esc(cargo.nome)}</option>`).join('')}</select></div>
+            <div style="display:flex;align-items:end;"><a class="btn-link" href="/painel/funcionarios/cargos">Novo cargo</a></div>
+          </div>
+          <div class="filters-actions"><button type="submit">Salvar funcionário</button><a href="/painel/funcionarios/pesquisar"><button type="button" class="btn-secondary">Cancelar</button></a></div>
+        </form>
+      </section>
+    `,
+  }));
+});
+
+app.post('/painel/funcionarios-salvar/:id', auth, async (req, res) => {
+  if (!validarSenhaPainel(req.query.senha || req.body.senha)) return res.status(403).send('Senha inválida');
+  const b = funcionarioFormValores(req.body);
+  const payload = {
+    nome: String(b.nome || '').trim(),
+    sobrenome: String(b.sobrenome || '').trim(),
+    telefone: normalizarTelefone(b.telefone),
+    email: String(b.email || '').trim(),
+    endereco: String(b.endereco || '').trim(),
+    cargo_id: String(b.cargo_id || '').trim(),
+  };
+  const obrigatorio = validarCamposObrigatoriosFuncionario(payload);
+  if (obrigatorio) {
+    const qs = new URLSearchParams({ ...b, erro: `Preencha o campo ${obrigatorio[1]}.`, missingField: obrigatorio[0] }).toString();
+    return res.redirect(`/painel/funcionarios-editar/${req.params.id}?${qs}`);
+  }
+  await pool.query(`UPDATE funcionarios SET nome = $2, sobrenome = $3, telefone = $4, email = $5, endereco = $6, cargo_id = $7, data_alteracao = now() WHERE id = $1`, [req.params.id, payload.nome, payload.sobrenome, payload.telefone, payload.email || null, payload.endereco || null, payload.cargo_id]);
+  res.redirect('/painel/funcionarios/pesquisar');
+});
+
+app.post('/painel/funcionarios-excluir/:id', auth, async (req, res) => {
+  if (!validarSenhaPainel(req.body.senha)) return res.status(403).send('Senha inválida');
+  await pool.query('DELETE FROM funcionarios WHERE id = $1', [req.params.id]);
+  res.redirect('/painel/funcionarios/pesquisar');
+});
+
 app.get('/painel/categorias', auth, async (req, res) => {
   const erro = req.query.erro ? decodeURIComponent(req.query.erro) : '';
   const v = categoriaFormValores(req.query);
@@ -4419,4 +4873,3 @@ const port = Number(process.env.APP_PORT || 5180);
 app.listen(port, '0.0.0.0', () => {
   console.log(`${getAppDisplayName()} em http://127.0.0.1:${port}`);
 });
-

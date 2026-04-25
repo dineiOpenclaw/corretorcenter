@@ -34,4 +34,8 @@ if ! PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d
   exit 1
 fi
 
-PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -f "$ROOT_DIR/db/migrations/001_init.sql"
+for migration in "$ROOT_DIR"/db/migrations/*.sql; do
+  [ -f "$migration" ] || continue
+  echo "Aplicando migration: $(basename "$migration")"
+  PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -f "$migration"
+done
