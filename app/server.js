@@ -975,6 +975,24 @@ function scriptAutoRefreshManutencao(enabled) {
 
 function scriptNumeroAoDigitar() {
   return `<script>
+    function confirmarSenhaPainel(event, acao, campo = 'senha') {
+      const senha = window.prompt('Digite a senha para ' + acao + ':');
+      if (!senha) return false;
+      const input = event.target.querySelector('input[name="' + campo + '"]');
+      if (input) input.value = senha;
+      return true;
+    }
+
+    function acessarPaginaProtegida(event, url, acao) {
+      event.preventDefault();
+      const senha = window.prompt('Digite a senha para acessar ' + acao + ':');
+      if (!senha) return false;
+      const destino = new URL(url, window.location.origin);
+      destino.searchParams.set('senha', senha);
+      window.location.href = destino.toString();
+      return false;
+    }
+
     document.addEventListener('DOMContentLoaded', () => {
       const forms = document.querySelectorAll('form[data-validate-numeric]');
       forms.forEach((form) => {
@@ -1264,9 +1282,9 @@ function shell({ title, subtitle = '', active = 'inicio', content }) {
           <a href="/painel/clientes/novo" class="${active === 'novo-cliente' ? 'active' : ''}">Cadastrar cliente</a>
           <a href="/painel/clientes/simular-compatibilidade" class="${active === 'simular-compatibilidade' ? 'active' : ''}">Simular compatibilidade</a>
           <a href="/painel/oportunidades" class="${active === 'oportunidades' ? 'active' : ''}">Oportunidades</a>
-          <a href="/painel/configuracoes" class="${active === 'configuracoes' ? 'active' : ''}">Configurações</a>
-          <a href="/painel/manutencao" class="${active === 'manutencao' ? 'active' : ''}">Manutenção</a>
-          <a href="/painel/backup-restaurar" class="${active === 'backup-restaurar' ? 'active' : ''}">Backup/Restaurar</a>
+          <a href="/painel/configuracoes" class="${active === 'configuracoes' ? 'active' : ''}" onclick="return acessarPaginaProtegida(event, '/painel/configuracoes', 'Configurações')">Configurações</a>
+          <a href="/painel/manutencao" class="${active === 'manutencao' ? 'active' : ''}" onclick="return acessarPaginaProtegida(event, '/painel/manutencao', 'Manutenção')">Manutenção</a>
+          <a href="/painel/backup-restaurar" class="${active === 'backup-restaurar' ? 'active' : ''}" onclick="return acessarPaginaProtegida(event, '/painel/backup-restaurar', 'Backup/Restaurar')">Backup/Restaurar</a>
           <a href="/logout">Sair</a>
         </nav>
       </div>
@@ -1817,6 +1835,7 @@ app.get('/painel', async (req, res) => {
 });
 
 app.get('/painel/backup-restaurar', auth, async (req, res) => {
+  if (!validarSenhaPainel(req.query.senha)) return res.status(403).send('Senha inválida');
   const erro = req.query.erro ? decodeURIComponent(req.query.erro) : '';
   const ok = req.query.ok ? decodeURIComponent(req.query.ok) : '';
   const backupImoveisRoot = path.join(__dirname, '..', 'backup_imoveis');
@@ -2088,6 +2107,7 @@ app.post('/painel/backup-restaurar/restore-funcionarios-upload', auth, upload.si
 });
 
 app.get('/painel/manutencao', auth, async (req, res) => {
+  if (!validarSenhaPainel(req.query.senha)) return res.status(403).send('Senha inválida');
   const status = await montarStatusManutencaoSistema();
   const erro = req.query.erro ? decodeURIComponent(req.query.erro) : '';
   const ok = req.query.ok ? decodeURIComponent(req.query.ok) : '';
@@ -2390,6 +2410,7 @@ app.get('/painel/manutencao/historico', auth, async (req, res) => {
 
 
 app.get('/painel/configuracoes', auth, async (req, res) => {
+  if (!validarSenhaPainel(req.query.senha)) return res.status(403).send('Senha inválida');
   const erro = req.query.erro ? decodeURIComponent(req.query.erro) : '';
   const ok = req.query.ok === '1';
   const v = { ...configuracoesSistemaValores(), ...req.query };
@@ -3269,7 +3290,8 @@ app.get('/painel/funcionarios/cargos', auth, async (req, res) => {
       ${renderFormError(erro)}
       <section class="card">
         <h3>Novo cargo</h3>
-        <form method="post" action="/painel/funcionarios/cargos/novo">
+        <form method="post" action="/painel/funcionarios/cargos/novo" onsubmit="return confirmarSenhaPainel(event, 'cadastrar o cargo')">
+          <input type="hidden" name="senha" value="" />
           <div class="grid">
             <div><label>Nome do cargo</label><input name="nome" value="${esc(v.nome)}" required /></div>
             <div><label>Ativo</label><select name="ativo"><option value="1" ${v.ativo ? 'selected' : ''}>Sim</option><option value="0" ${!v.ativo ? 'selected' : ''}>Não</option></select></div>
@@ -3298,6 +3320,7 @@ app.get('/painel/funcionarios/cargos', auth, async (req, res) => {
 });
 
 app.post('/painel/funcionarios/cargos/novo', auth, async (req, res) => {
+  if (!validarSenhaPainel(req.body.senha)) return res.status(403).send('Senha inválida');
   const b = cargoFuncionarioFormValores(req.body);
   const payload = prepararCargoFuncionarioPayload(req.body);
   if (!payload.nome) {
@@ -3397,7 +3420,8 @@ app.get('/painel/funcionarios/novo', auth, async (req, res) => {
     content: `
       ${renderFormError(erro || ok)}
       <section class="card">
-        <form method="post" action="/painel/funcionarios/novo">
+        <form method="post" action="/painel/funcionarios/novo" onsubmit="return confirmarSenhaPainel(event, 'salvar o cadastro do funcionário')">
+          <input type="hidden" name="senha" value="" />
           <div class="grid">
             <div><label>Código</label><input value="${esc(codigoPreview)}" readonly /></div>
             ${linkFormularioPreview}
@@ -3434,6 +3458,7 @@ app.get('/painel/funcionarios/novo', auth, async (req, res) => {
 });
 
 app.post('/painel/funcionarios/novo', auth, async (req, res) => {
+  if (!validarSenhaPainel(req.body.senha)) return res.status(403).send('Senha inválida');
   const b = funcionarioFormValores(req.body);
   const payload = {
     nome: String(b.nome || '').trim(),
@@ -3687,7 +3712,8 @@ app.get('/painel/categorias', auth, async (req, res) => {
       ${renderFormError(erro)}
       <section class="card">
         <h3>Nova categoria</h3>
-        <form method="post" action="/painel/categorias/novo">
+        <form method="post" action="/painel/categorias/novo" onsubmit="return confirmarSenhaPainel(event, 'cadastrar a categoria')">
+          <input type="hidden" name="senha" value="" />
           <div class="grid">
             <div><label>Nome de exibição</label><input name="nome_exibicao" value="${esc(v.nome_exibicao)}" required /></div>
             <div><label>Sigla código</label><input name="sigla_codigo" value="${esc(v.sigla_codigo)}" placeholder="ex.: SO" required /></div>
@@ -3721,6 +3747,7 @@ app.get('/painel/categorias', auth, async (req, res) => {
 });
 
 app.post('/painel/categorias/novo', auth, async (req, res) => {
+  if (!validarSenhaPainel(req.body.senha)) return res.status(403).send('Senha inválida');
   const b = categoriaFormValores(req.body);
   const payload = prepararCategoriaPayload(req.body);
   if (!payload.nome_exibicao) {
@@ -4816,7 +4843,8 @@ app.get('/painel/imoveis/novo', auth, async (req, res) => {
     content: `
       ${renderFormError(erro)}
       <section class="card">
-        <form method="post" action="/painel/imoveis/novo" enctype="multipart/form-data" data-validate-numeric="true">
+        <form method="post" action="/painel/imoveis/novo" enctype="multipart/form-data" data-validate-numeric="true" onsubmit="return confirmarSenhaPainel(event, 'cadastrar o imóvel')">
+          <input type="hidden" name="senha" value="" />
           <div class="grid">
             <div><label>Categoria</label><select name="categoria_slug" required><option value="">Selecione</option>${categorias.rows.map((c) => `<option value="${c.slug}" ${v.categoria_slug === c.slug ? 'selected' : ''}>${esc(c.nome_exibicao)}</option>`).join('')}</select></div>
             <div><label>&nbsp;</label><a href="/painel/categorias"><button type="button" class="btn-secondary">Criar/Editar categoria</button></a></div>
@@ -4866,6 +4894,7 @@ app.get('/painel/imoveis/novo', auth, async (req, res) => {
 });
 
 app.post('/painel/imoveis/novo', auth, upload.array('fotos', 30), async (req, res) => {
+  if (!validarSenhaPainel(req.body.senha)) return res.status(403).send('Senha inválida');
   const client = await pool.connect();
   try {
     const b = { ...req.body };
