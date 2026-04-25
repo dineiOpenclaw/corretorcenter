@@ -559,30 +559,122 @@ function authCookieSignature() {
   return crypto.createHash('sha256').update(secretBase).digest('hex');
 }
 
+function authFuncionarioCookieName() {
+  return 'cc_func_auth';
+}
+
+function employeeAuthSecret() {
+  return `${process.env.PANEL_ADMIN_USER || ''}:${process.env.PANEL_ADMIN_PASSWORD || ''}:${process.env.APP_NAME || 'corretorcenter'}:funcionario`;
+}
+
+function criarHashSenhaFuncionario(senha) {
+  const salt = crypto.randomBytes(16).toString('hex');
+  const hash = crypto.scryptSync(String(senha || ''), salt, 64).toString('hex');
+  return `scrypt$${salt}$${hash}`;
+}
+
+function validarHashSenhaFuncionario(senha, storedHash) {
+  const raw = String(storedHash || '');
+  const [algoritmo, salt, hash] = raw.split('$');
+  if (algoritmo !== 'scrypt' || !salt || !hash) return false;
+  const atual = crypto.scryptSync(String(senha || ''), salt, 64).toString('hex');
+  return crypto.timingSafeEqual(Buffer.from(atual, 'hex'), Buffer.from(hash, 'hex'));
+}
+
+function senhaInicialFuncionario(codigo) {
+  return `LOG_${normalizarCodigoFuncionario(codigo)}`;
+}
+
+function gerarSenhaTemporariaFuncionario(codigo) {
+  return `LOG_${normalizarCodigoFuncionario(codigo)}_${crypto.randomBytes(2).toString('hex').toUpperCase()}`;
+}
+
+function gerarTokenSessaoFuncionario(item) {
+  const codigo = normalizarCodigoFuncionario(item.codigo);
+  const base = `${item.id}:${codigo}:${item.login_password_hash || ''}:${employeeAuthSecret()}`;
+  return crypto.createHash('sha256').update(base).digest('hex');
+}
+
+function serializarSessaoFuncionario(item) {
+  const payload = Buffer.from(JSON.stringify({ id: item.id, codigo: normalizarCodigoFuncionario(item.codigo), token: gerarTokenSessaoFuncionario(item) }), 'utf8').toString('base64url');
+  return payload;
+}
+
+function lerSessaoFuncionario(req) {
+  const cookies = parseCookies(req.headers.cookie || '');
+  const raw = cookies[authFuncionarioCookieName()];
+  if (!raw) return null;
+  try {
+    return JSON.parse(Buffer.from(String(raw), 'base64url').toString('utf8'));
+  } catch {
+    return null;
+  }
+}
+
 function hasAuthenticatedSession(req) {
   const cookies = parseCookies(req.headers.cookie || '');
   return cookies[authCookieName()] === authCookieSignature();
 }
 
 function setAuthenticatedSession(res) {
-  res.setHeader('Set-Cookie', `${authCookieName()}=${authCookieSignature()}; Path=/; HttpOnly; SameSite=Lax; Max-Age=28800`);
+  const cookies = [
+    `${authCookieName()}=${authCookieSignature()}; Path=/; HttpOnly; SameSite=Lax; Max-Age=28800`,
+    `${authFuncionarioCookieName()}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`,
+  ];
+  res.setHeader('Set-Cookie', cookies);
+}
+
+function setFuncionarioAuthenticatedSession(res, item) {
+  const cookies = [
+    `${authFuncionarioCookieName()}=${serializarSessaoFuncionario(item)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=28800`,
+    `${authCookieName()}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`,
+  ];
+  res.setHeader('Set-Cookie', cookies);
 }
 
 function clearAuthenticatedSession(res) {
-  res.setHeader('Set-Cookie', `${authCookieName()}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`);
+  res.setHeader('Set-Cookie', [
+    `${authCookieName()}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`,
+    `${authFuncionarioCookieName()}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`,
+  ]);
 }
 
-function hasValidPanelCredentials(req) {
-  return hasAuthenticatedSession(req);
+async function funcionarioAutenticado(req) {
+  const sessao = lerSessaoFuncionario(req);
+  if (!sessao?.id || !sessao?.codigo || !sessao?.token) return null;
+  const result = await pool.query('SELECT id, codigo, nome, sobrenome, login_password_hash, login_reset_required FROM funcionarios WHERE id = $1 LIMIT 1', [sessao.id]);
+  if (!result.rows.length) return null;
+  const item = result.rows[0];
+  if (normalizarCodigoFuncionario(item.codigo) != normalizarCodigoFuncionario(sessao.codigo)) return null;
+  if (gerarTokenSessaoFuncionario(item) != sessao.token) return null;
+  return item;
 }
 
-function auth(req, res, next) {
+async function hasValidPanelCredentials(req) {
+  if (hasAuthenticatedSession(req)) return { tipo: 'admin' };
+  const funcionario = await funcionarioAutenticado(req);
+  if (funcionario) return { tipo: 'funcionario', funcionario };
+  return null;
+}
+
+async function auth(req, res, next) {
   const panelUser = String(process.env.PANEL_ADMIN_USER || '').trim();
   const panelPass = String(process.env.PANEL_ADMIN_PASSWORD || '').trim();
   if (!panelUser || !panelPass) {
     return res.status(500).send('Credenciais do painel não configuradas. Defina PANEL_ADMIN_USER e PANEL_ADMIN_PASSWORD antes de subir o app.');
   }
-  if (hasValidPanelCredentials(req)) return next();
+  const sessao = await hasValidPanelCredentials(req);
+  if (sessao?.tipo === 'admin') {
+    req.authContext = sessao;
+    return next();
+  }
+  if (sessao?.tipo === 'funcionario') {
+    req.authContext = sessao;
+    if (sessao.funcionario.login_reset_required && req.path !== '/primeiro-acesso-funcionario') {
+      return res.redirect('/primeiro-acesso-funcionario');
+    }
+    return next();
+  }
   const link = recoveryBaseUrl(req) ? `${recoveryBaseUrl(req)}/recuperar-acesso` : '/recuperar-acesso';
   return res.redirect(`/?erro=${encodeURIComponent(`${getAuthRequiredMessage()}. Se precisar, recupere o acesso em ${link}`)}`);
 }
@@ -1409,7 +1501,7 @@ app.get('/', (req, res) => {
   }));
 });
 
-app.post('/entrar', (req, res) => {
+app.post('/entrar', async (req, res) => {
   const usuario = String(req.body.usuario || '').trim();
   const senha = String(req.body.senha || '').trim();
   const panelUser = String(process.env.PANEL_ADMIN_USER || '').trim();
@@ -1417,10 +1509,57 @@ app.post('/entrar', (req, res) => {
   if (!usuario || !senha) {
     return res.status(400).send(renderSystemHomePage({ error: 'Informe usuário e senha para entrar.' }));
   }
-  if (usuario !== panelUser || senha !== panelPass) {
+  if (usuario === panelUser && senha === panelPass) {
+    setAuthenticatedSession(res);
+    return res.redirect('/painel');
+  }
+  const funcionarioResult = await pool.query('SELECT id, codigo, nome, sobrenome, login_password_hash, login_reset_required FROM funcionarios WHERE upper(codigo) = $1 LIMIT 1', [normalizarCodigoFuncionario(usuario)]);
+  if (!funcionarioResult.rows.length || !validarHashSenhaFuncionario(senha, funcionarioResult.rows[0].login_password_hash)) {
     return res.status(401).send(renderSystemHomePage({ error: 'Usuário ou senha inválidos.' }));
   }
-  setAuthenticatedSession(res);
+  const funcionario = funcionarioResult.rows[0];
+  setFuncionarioAuthenticatedSession(res, funcionario);
+  if (funcionario.login_reset_required) return res.redirect('/primeiro-acesso-funcionario');
+  return res.redirect('/painel');
+});
+
+app.get('/primeiro-acesso-funcionario', async (req, res) => {
+  const funcionario = await funcionarioAutenticado(req);
+  if (!funcionario) return res.redirect('/?erro=' + encodeURIComponent('Faça login para continuar.'));
+  return res.send(formShell({
+    title: 'Definir nova senha',
+    content: `
+      ${req.query.erro ? `<div class="card form-error">${esc(decodeURIComponent(req.query.erro))}</div>` : ''}
+      <section class="card">
+        <h2 class="page-title">Definir nova senha</h2>
+        <p class="page-subtitle">Olá, ${esc([funcionario.nome, funcionario.sobrenome].filter(Boolean).join(' '))}. Defina sua nova senha para continuar.</p>
+        <form method="post" action="/primeiro-acesso-funcionario">
+          <div class="grid">
+            <div><label>Usuário</label><input value="${esc(funcionario.codigo)}" readonly /></div>
+            <div><label>Nova senha</label><input type="password" name="novaSenha" autocomplete="new-password" required /></div>
+            <div><label>Confirmar nova senha</label><input type="password" name="confirmarSenha" autocomplete="new-password" required /></div>
+          </div>
+          <div class="filters-actions"><button type="submit">Salvar nova senha</button><a href="/logout">Sair</a></div>
+        </form>
+      </section>
+    `,
+  }));
+});
+
+app.post('/primeiro-acesso-funcionario', async (req, res) => {
+  const funcionario = await funcionarioAutenticado(req);
+  if (!funcionario) return res.redirect('/?erro=' + encodeURIComponent('Faça login para continuar.'));
+  const novaSenha = String(req.body.novaSenha || '').trim();
+  const confirmarSenha = String(req.body.confirmarSenha || '').trim();
+  if (novaSenha.length < 6) {
+    return res.redirect('/primeiro-acesso-funcionario?erro=' + encodeURIComponent('A nova senha deve ter pelo menos 6 caracteres.'));
+  }
+  if (novaSenha !== confirmarSenha) {
+    return res.redirect('/primeiro-acesso-funcionario?erro=' + encodeURIComponent('A confirmação da senha não confere.'));
+  }
+  const novoHash = criarHashSenhaFuncionario(novaSenha);
+  const result = await pool.query('UPDATE funcionarios SET login_password_hash = $2, login_reset_required = false, data_alteracao = now() WHERE id = $1 RETURNING id, codigo, nome, sobrenome, login_password_hash, login_reset_required', [funcionario.id, novoHash]);
+  setFuncionarioAuthenticatedSession(res, result.rows[0]);
   return res.redirect('/painel');
 });
 
@@ -2367,6 +2506,7 @@ app.get('/painel/manutencao/historico', auth, async (req, res) => {
     title: 'Histórico de manutenção',
     active: 'manutencao',
     content: `
+      ${renderFormError(erro || ok)}
       <section class="card">
         <div class="filters-actions" style="justify-content:space-between;align-items:center;">
           <div>
@@ -3170,6 +3310,7 @@ function funcionarioFormValores(source = {}) {
     endereco: source.endereco || '',
     cargo_id: source.cargo_id || '',
     codigo: source.codigo || '',
+    login_temp_password: source.login_temp_password || '',
   };
 }
 
@@ -3432,6 +3573,7 @@ app.get('/painel/funcionarios/novo', auth, async (req, res) => {
             <div class="field-full"><label>Endereço</label><input name="endereco" value="${esc(v.endereco)}" /></div>
             <div><label>Cargo ${missingField === 'cargo_id' ? '<span class="field-error-marker">*</span>' : ''}</label><select name="cargo_id" class="${fieldErrorClass('cargo_id', missingField)}" required><option value="">Selecione</option>${cargos.rows.map((cargo) => `<option value="${cargo.id}" ${v.cargo_id === cargo.id ? 'selected' : ''}>${esc(cargo.nome)}</option>`).join('')}</select></div>
             <div style="display:flex;align-items:end;"><a class="btn-link" href="/painel/funcionarios/cargos">Novo cargo</a></div>
+            <div class="field-full"><small class="muted">Login automático do funcionário: usuário <strong>${esc(item.codigo)}</strong> e senha inicial <strong>${esc(senhaInicialFuncionario(item.codigo))}</strong>. No primeiro acesso ele será obrigado a trocar a senha.</small></div>
           </div>
           <div class="filters-actions">
             <button type="submit">Salvar cadastro</button>
@@ -3477,9 +3619,10 @@ app.post('/painel/funcionarios/novo', auth, async (req, res) => {
   try {
     await client.query('BEGIN');
     const codigo = await gerarCodigoFuncionario(client);
-    await client.query(`INSERT INTO funcionarios (codigo, nome, sobrenome, telefone, email, endereco, cargo_id) VALUES ($1,$2,$3,$4,$5,$6,$7)`, [codigo, payload.nome, payload.sobrenome, payload.telefone, payload.email || null, payload.endereco || null, payload.cargo_id]);
+    const senhaInicial = senhaInicialFuncionario(codigo);
+    await client.query(`INSERT INTO funcionarios (codigo, nome, sobrenome, telefone, email, endereco, cargo_id, login_password_hash, login_reset_required) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,true)`, [codigo, payload.nome, payload.sobrenome, payload.telefone, payload.email || null, payload.endereco || null, payload.cargo_id, criarHashSenhaFuncionario(senhaInicial)]);
     await client.query('COMMIT');
-    return res.redirect(`/painel/funcionarios/novo?ok=${encodeURIComponent(`Funcionário ${codigo} cadastrado com sucesso.`)}`);
+    return res.redirect(`/painel/funcionarios/novo?ok=${encodeURIComponent(`Funcionário ${codigo} cadastrado com sucesso. Login: ${codigo} | Senha inicial: ${senhaInicial}`)}`);
   } catch (error) {
     try { await client.query('ROLLBACK'); } catch {}
     const mensagem = error.code === '23505' ? 'Já existe funcionário com esse código.' : error.message;
@@ -3491,6 +3634,8 @@ app.post('/painel/funcionarios/novo', auth, async (req, res) => {
 });
 
 app.get('/painel/funcionarios/pesquisar', auth, async (req, res) => {
+  const erro = req.query.erro ? decodeURIComponent(req.query.erro) : '';
+  const ok = req.query.ok ? decodeURIComponent(req.query.ok) : '';
   const filtros = {
     nome: String(req.query.nome || '').trim(),
     telefone: String(req.query.telefone || '').trim(),
@@ -3534,10 +3679,19 @@ app.get('/painel/funcionarios/pesquisar', auth, async (req, res) => {
           <button type="button" class="btn-secondary" onclick="copiarLinkFuncionario('link-formulario-${esc(String(item.codigo || '').toLowerCase())}')">Copiar</button>
         </div>
       </div>
+      <div class="card" style="margin-top:16px;padding:14px;">
+        <strong>Acesso do funcionário</strong>
+        <p style="margin:10px 0 0;"><strong>Usuário:</strong> ${esc(item.codigo)}</p>
+        <p style="margin:6px 0 0;">Senha inicial automática: <strong>${esc(senhaInicialFuncionario(item.codigo))}</strong></p>
+      </div>
       <div class="result-actions">
         <form method="post" action="/painel/funcionarios-editar-senha/${item.id}" class="inline-form" onsubmit="return confirmarSenhaAcaoFuncionario(event, 'editar')">
           <input type="hidden" name="senha" value="" />
           <button type="submit" class="btn-secondary">Editar funcionário</button>
+        </form>
+        <form method="post" action="/painel/funcionarios-login-reset/${item.id}" class="inline-form" onsubmit="return confirmarSenhaAcaoFuncionario(event, 'resetar login')">
+          <input type="hidden" name="senha" value="" />
+          <button type="submit" class="btn-secondary">Resetar senha de login</button>
         </form>
         <form method="post" action="/painel/funcionarios-excluir/${item.id}" class="inline-form" onsubmit="return confirmarSenhaAcaoFuncionario(event, 'excluir')">
           <input type="hidden" name="senha" value="" />
@@ -3665,6 +3819,16 @@ app.post('/painel/funcionarios-salvar/:id', auth, async (req, res) => {
   }
   await pool.query(`UPDATE funcionarios SET nome = $2, sobrenome = $3, telefone = $4, email = $5, endereco = $6, cargo_id = $7, data_alteracao = now() WHERE id = $1`, [req.params.id, payload.nome, payload.sobrenome, payload.telefone, payload.email || null, payload.endereco || null, payload.cargo_id]);
   res.redirect('/painel/funcionarios/pesquisar');
+});
+
+app.post('/painel/funcionarios-login-reset/:id', auth, async (req, res) => {
+  if (!validarSenhaPainel(req.body.senha)) return res.status(403).send('Senha inválida');
+  const result = await pool.query('SELECT id, codigo FROM funcionarios WHERE id = $1 LIMIT 1', [req.params.id]);
+  if (!result.rows.length) return res.status(404).send('Funcionário não encontrado');
+  const item = result.rows[0];
+  const senhaTemporaria = gerarSenhaTemporariaFuncionario(item.codigo);
+  await pool.query('UPDATE funcionarios SET login_password_hash = $2, login_reset_required = true, data_alteracao = now() WHERE id = $1', [item.id, criarHashSenhaFuncionario(senhaTemporaria)]);
+  return res.redirect(`/painel/funcionarios/pesquisar?ok=${encodeURIComponent(`Senha de login resetada para ${item.codigo}. Senha temporária: ${senhaTemporaria}`)}`);
 });
 
 app.post('/painel/funcionarios-excluir/:id', auth, async (req, res) => {
