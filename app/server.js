@@ -195,6 +195,29 @@ function getPublicFormSubtitle() {
   return process.env.PUBLIC_FORM_SUBTITLE || 'Enquanto você preenche o formulário, o sistema estará pesquisando em nosso catálogo, imóveis que atendam ao seu interesse.';
 }
 
+function getFormDomain() {
+  return String(process.env.FORM_DOMAIN || '').trim().toLowerCase();
+}
+
+function getFormBaseUrl(req = null) {
+  const domain = getFormDomain();
+  if (domain) return `https://${domain}`;
+  if (req) return `${req.protocol}://${req.get('host')}`;
+  return '';
+}
+
+function normalizarCodigoFuncionario(value) {
+  return String(value || '').trim().toUpperCase();
+}
+
+function montarLinkFormularioCorretor(codigo, req = null) {
+  const codigoNormalizado = normalizarCodigoFuncionario(codigo);
+  if (!codigoNormalizado) return '';
+  const base = getFormBaseUrl(req);
+  const formPath = `/formulario?corretor=${encodeURIComponent(codigoNormalizado)}`;
+  return base ? `${base}${formPath}` : formPath;
+}
+
 function getPublicFormSuccessMessage() {
   return process.env.PUBLIC_FORM_SUCCESS_MESSAGE || 'Recebemos suas informações com sucesso. Em breve entraremos em contato.';
 }
@@ -501,6 +524,22 @@ function getCategoriesEditSubtitle() {
 
 function normalizarLeadBroker(value) {
   return String(value || '').trim();
+}
+
+function nomeCompletoFuncionario(item = {}) {
+  return [item.nome, item.sobrenome].map((value) => String(value || '').trim()).filter(Boolean).join(' ');
+}
+
+async function buscarFuncionarioPorCodigo(codigo) {
+  const codigoNormalizado = normalizarCodigoFuncionario(codigo);
+  if (!codigoNormalizado) return null;
+  const result = await pool.query('SELECT id, codigo, nome, sobrenome FROM funcionarios WHERE upper(codigo) = $1 LIMIT 1', [codigoNormalizado]);
+  if (!result.rows.length) return null;
+  const item = result.rows[0];
+  return {
+    ...item,
+    nome_completo: nomeCompletoFuncionario(item),
+  };
 }
 
 function resolverNomeAtendimentoPublico(corretor) {
@@ -1477,11 +1516,13 @@ app.get('/formulario/matches', async (req, res) => {
 
 app.get('/formulario', async (req, res) => {
   const { cidades, bairrosPorCidade } = await carregarSugestoesLocalizacao();
-  const [categoriasCliente, sugestoesClientes] = await Promise.all([
+  const corretorCodigo = normalizarCodigoFuncionario(req.query.corretor);
+  const [categoriasCliente, sugestoesClientes, funcionarioLead] = await Promise.all([
     carregarCategoriasAtivas(),
     pool.query("SELECT nome, telefone FROM clientes WHERE (nome IS NOT NULL AND nome <> '') OR (telefone IS NOT NULL AND telefone <> '') ORDER BY nome NULLS LAST, telefone NULLS LAST LIMIT 200"),
+    buscarFuncionarioPorCodigo(corretorCodigo),
   ]);
-  const corretor = normalizarLeadBroker(req.query.corretor);
+  const corretor = funcionarioLead?.nome_completo || '';
   const erro = req.query.erro ? decodeURIComponent(req.query.erro) : '';
   const ok = req.query.ok === '1';
   const v = clienteFormValores(req.query);
@@ -1505,11 +1546,11 @@ app.get('/formulario', async (req, res) => {
       </section>
       <section class="card">
         <form method="post" action="/formulario" data-validate-numeric="true">
-          <input type="hidden" name="corretor" value="${esc(corretor)}" />
+          <input type="hidden" name="corretor" value="${esc(corretorCodigo)}" />
           <div class="grid">
             <div><label>Nome</label><input name="nome" value="${esc(v.nome)}" required /></div>
             <div><label>Telefone</label><input name="telefone" value="${v.telefone ? esc(formatarTelefone(v.telefone)) : ""}" placeholder="(51) 98035-7562" inputmode="numeric" oninput="let v=this.value.replace(/\\D/g,'').slice(0,11);this.value=v.length>10?('('+v.slice(0,2)+') '+v.slice(2,7)+(v.length>7?'-'+v.slice(7):'')):v.length>6?('('+v.slice(0,2)+') '+v.slice(2,6)+(v.length>6?'-'+v.slice(6):'')):v.length>2?('('+v.slice(0,2)+') '+v.slice(2)):v;" required /></div>
-            <div><label>${esc(getLeadAttendantLabel())}</label><input value="${esc(resolverNomeAtendimentoPublico(corretor))}" readonly /></div>
+            <div><label>${esc(getLeadBrokerLabel())}</label><input value="${esc(resolverNomeAtendimentoPublico(corretor))}" readonly /></div>
             <div><label>Tipo de imóvel desejado</label><select name="tipo_imovel_desejado" required><option value="">Selecione</option>${categoriasCliente.rows.map((c) => `<option value="${esc(c.nome_exibicao)}" ${v.tipo_imovel_desejado === c.nome_exibicao ? 'selected' : ''}>${esc(c.nome_exibicao)}</option>`).join('')}</select></div>
             <div><label>Estado do imóvel desejado</label>${selectEstadoImovel('estado_imovel_desejado', v.estado_imovel_desejado)}</div>
             <div><label for="numero_quartos_desejado">N° de quartos</label><input id="numero_quartos_desejado" name="numero_quartos_desejado" type="text" data-numero="inteiro" value="${esc(v.numero_quartos_desejado)}" /></div>
@@ -1660,9 +1701,10 @@ app.get('/formulario/resultado/:clienteId', async (req, res) => {
 
 app.post('/formulario', async (req, res) => {
   const b = clienteFormValores(req.body);
+  const corretorCodigo = normalizarCodigoFuncionario(req.body.corretor);
   const campoNumericoInvalido = validarNumerosFormulario(b, ['numero_quartos_desejado', 'numero_banheiros_desejado', 'numero_vagas_garagem_desejada', 'numero_suites_desejada', 'valor_minimo', 'valor_maximo']);
   if (campoNumericoInvalido) {
-    const qs = new URLSearchParams({ ...b, corretor: req.body.corretor || '', erro: `Preencha o campo ${campoNumericoInvalido} apenas com números.` }).toString();
+    const qs = new URLSearchParams({ ...b, corretor: corretorCodigo, erro: `Preencha o campo ${campoNumericoInvalido} apenas com números.` }).toString();
     return res.redirect(`/formulario?${qs}`);
   }
   const camposObrigatorios = [
@@ -1675,15 +1717,17 @@ app.post('/formulario', async (req, res) => {
   ];
   const campoObrigatorioFaltando = camposObrigatorios.find(([key]) => !String(b[key] || '').trim());
   if (campoObrigatorioFaltando) {
-    const qs = new URLSearchParams({ ...b, corretor: req.body.corretor || '', erro: `Preencha ${campoObrigatorioFaltando[1]} para enviar o formulário.` }).toString();
+    const qs = new URLSearchParams({ ...b, corretor: corretorCodigo, erro: `Preencha ${campoObrigatorioFaltando[1]} para enviar o formulário.` }).toString();
     return res.redirect(`/formulario?${qs}`);
   }
 
   try {
+    const funcionarioLead = await buscarFuncionarioPorCodigo(corretorCodigo);
+    const nomeCorretor = funcionarioLead?.nome_completo || '';
     const insertResult = await pool.query(`INSERT INTO clientes (telefone, nome, corretor, atendente, tipo_imovel_desejado, estado_imovel_desejado, numero_quartos_desejado, numero_banheiros_desejado, numero_vagas_garagem_desejada, numero_suites_desejada, valor_minimo, valor_maximo, cidade, bairro, tipo_pagamento, resumo_atendimento, interesse) VALUES ($1,$2,$3,$4,$5,$6,NULLIF($7,'')::int,NULLIF($8,'')::int,NULLIF($9,'')::int,NULLIF($10,'')::int,NULLIF($11,'')::numeric,NULLIF($12,'')::numeric,$13,$14,$15,$16,$17) RETURNING id`, [
       normalizarTelefone(b.telefone),
       b.nome,
-      normalizarLeadBroker(req.body.corretor),
+      nomeCorretor,
       getPublicFormAtendenteName(),
       b.tipo_imovel_desejado,
       b.estado_imovel_desejado,
@@ -1702,7 +1746,7 @@ app.post('/formulario', async (req, res) => {
     res.redirect(`/formulario/resultado/${insertResult.rows[0].id}`);
   } catch (error) {
     const mensagem = error.code === '23505' ? 'Já existe cadastro com este telefone.' : error.message;
-    const qs = new URLSearchParams({ ...b, corretor: req.body.corretor || '', erro: mensagem }).toString();
+    const qs = new URLSearchParams({ ...b, corretor: corretorCodigo, erro: mensagem }).toString();
     res.redirect(`/formulario?${qs}`);
   }
 });
@@ -1777,11 +1821,15 @@ app.get('/painel/backup-restaurar', auth, async (req, res) => {
   const ok = req.query.ok ? decodeURIComponent(req.query.ok) : '';
   const backupImoveisRoot = path.join(__dirname, '..', 'backup_imoveis');
   const backupClientesRoot = path.join(__dirname, '..', 'backup_cleber_clientes');
+  const backupFuncionariosRoot = path.join(__dirname, '..', 'backup_funcionarios');
   const backupImoveisFiles = fs.existsSync(backupImoveisRoot)
     ? fs.readdirSync(backupImoveisRoot, { withFileTypes: true }).filter((d) => d.isFile() && d.name.endsWith('.tar.gz')).map((d) => d.name).sort().reverse()
     : [];
   const backupClientesFiles = fs.existsSync(backupClientesRoot)
     ? fs.readdirSync(backupClientesRoot, { withFileTypes: true }).filter((d) => d.isFile() && d.name.endsWith('.tar.gz')).map((d) => d.name).sort().reverse()
+    : [];
+  const backupFuncionariosFiles = fs.existsSync(backupFuncionariosRoot)
+    ? fs.readdirSync(backupFuncionariosRoot, { withFileTypes: true }).filter((d) => d.isFile() && d.name.endsWith('.tar.gz')).map((d) => d.name).sort().reverse()
     : [];
   res.send(shell({
     title: 'Backup/Restaurar',
@@ -1807,7 +1855,8 @@ app.get('/painel/backup-restaurar', auth, async (req, res) => {
               </div>
               <p class="muted" style="margin:0; line-height:1.5;">Substitui dados e storage de imóveis pelo conteúdo do backup enviado.</p>
             </div>
-            <form method="post" action="/painel/backup-restaurar/restore-imoveis-upload" enctype="multipart/form-data" onsubmit="return confirm('Isso vai substituir os dados e a storage de imóveis pelo conteúdo do backup enviado. Deseja continuar?')" style="display:flex; flex-direction:column; gap:14px; align-items:stretch;">
+            <form method="post" action="/painel/backup-restaurar/restore-imoveis-upload" enctype="multipart/form-data" onsubmit="return confirmarSenhaAcaoBackup(event, 'restaurar o backup de imóveis', 'Isso vai substituir os dados e a storage de imóveis pelo conteúdo do backup enviado. Deseja continuar?')" style="display:flex; flex-direction:column; gap:14px; align-items:stretch;">
+              <input type="hidden" name="senha" value="" />
               <div>
                 <label>Escolher arquivo</label>
                 <input type="file" name="backupFile" accept=".tar.gz" required />
@@ -1827,7 +1876,8 @@ app.get('/painel/backup-restaurar', auth, async (req, res) => {
                 ${backupImoveisFiles.length ? `<ul style="margin:0; padding-left:18px; display:grid; gap:8px;">${backupImoveisFiles.map((item) => `<li><a href="/painel/backup-restaurar/download-imoveis/${encodeURIComponent(item)}">${esc(item)}</a></li>`).join('')}</ul>` : '<p class="muted" style="margin:0;">Nenhum backup de imóveis compactado gerado ainda.</p>'}
               </div>
             </div>
-            <form method="post" action="/painel/backup-restaurar/backup-imoveis" style="margin:0; display:flex; flex-direction:column; gap:14px; align-items:flex-start;">
+            <form method="post" action="/painel/backup-restaurar/backup-imoveis" onsubmit="return confirmarSenhaAcaoBackup(event, 'criar o backup de imóveis')" style="margin:0; display:flex; flex-direction:column; gap:14px; align-items:flex-start;">
+              <input type="hidden" name="senha" value="" />
               <button type="submit">Criar Backup</button>
             </form>
           </div>
@@ -1850,7 +1900,8 @@ app.get('/painel/backup-restaurar', auth, async (req, res) => {
               </div>
               <p class="muted" style="margin:0; line-height:1.5;">Substitui somente os clientes atuais pelos dados do backup enviado.</p>
             </div>
-            <form method="post" action="/painel/backup-restaurar/restore-clientes-upload" enctype="multipart/form-data" onsubmit="return confirm('Isso vai substituir somente os clientes pelo conteúdo do backup enviado. Deseja continuar?')" style="display:flex; flex-direction:column; gap:14px; align-items:stretch;">
+            <form method="post" action="/painel/backup-restaurar/restore-clientes-upload" enctype="multipart/form-data" onsubmit="return confirmarSenhaAcaoBackup(event, 'restaurar o backup de clientes', 'Isso vai substituir somente os clientes pelo conteúdo do backup enviado. Deseja continuar?')" style="display:flex; flex-direction:column; gap:14px; align-items:stretch;">
+              <input type="hidden" name="senha" value="" />
               <div>
                 <label>Escolher arquivo</label>
                 <input type="file" name="backupFile" accept=".tar.gz" required />
@@ -1870,17 +1921,75 @@ app.get('/painel/backup-restaurar', auth, async (req, res) => {
                 ${backupClientesFiles.length ? `<ul style="margin:0; padding-left:18px; display:grid; gap:8px;">${backupClientesFiles.map((item) => `<li><a href="/painel/backup-restaurar/download-clientes/${encodeURIComponent(item)}">${esc(item)}</a></li>`).join('')}</ul>` : '<p class="muted" style="margin:0;">Nenhum backup de clientes compactado gerado ainda.</p>'}
               </div>
             </div>
-            <form method="post" action="/painel/backup-restaurar/backup-clientes" style="margin:0; display:flex; flex-direction:column; gap:14px; align-items:flex-start;">
+            <form method="post" action="/painel/backup-restaurar/backup-clientes" onsubmit="return confirmarSenhaAcaoBackup(event, 'criar o backup de clientes')" style="margin:0; display:flex; flex-direction:column; gap:14px; align-items:flex-start;">
+              <input type="hidden" name="senha" value="" />
               <button type="submit">Backup Clientes</button>
             </form>
           </div>
         </div>
       </section>
+      <section class="card" style="padding:24px; border:1px solid #e2e8f0; box-shadow:0 10px 30px rgba(15,23,42,.06);">
+        <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:16px; flex-wrap:wrap; margin-bottom:18px;">
+          <div>
+            <h3 style="margin:0 0 6px; font-size:22px;">Backup de funcionários</h3>
+            <p class="muted" style="margin:0; max-width:680px;">Crie um backup das tabelas de funcionários e cargos ou restaure uma base enviada.</p>
+          </div>
+          <span class="match-badge match-medio">Funcionários</span>
+        </div>
+        <div style="display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:18px; align-items:stretch;">
+          <div style="min-width:0; border:1px solid #e2e8f0; border-radius:18px; padding:20px; box-sizing:border-box; background:#f8fafc; display:flex; flex-direction:column; gap:16px; min-height:100%;">
+            <div>
+              <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:12px;">
+                <h4 style="margin:0; font-size:18px;">Restaurar backup</h4>
+                <span class="match-badge match-medio">Destrutivo</span>
+              </div>
+              <p class="muted" style="margin:0; line-height:1.5;">Substitui cargos e funcionários atuais pelos dados do backup enviado.</p>
+            </div>
+            <form method="post" action="/painel/backup-restaurar/restore-funcionarios-upload" enctype="multipart/form-data" onsubmit="return confirmarSenhaAcaoBackup(event, 'restaurar o backup de funcionários', 'Isso vai substituir cargos e funcionários pelo conteúdo do backup enviado. Deseja continuar?')" style="display:flex; flex-direction:column; gap:14px; align-items:stretch;">
+              <input type="hidden" name="senha" value="" />
+              <div>
+                <label>Escolher arquivo</label>
+                <input type="file" name="backupFile" accept=".tar.gz" required />
+              </div>
+              <button type="submit" style="align-self:flex-start;">Restaurar backup</button>
+            </form>
+          </div>
+          <div style="min-width:0; border:1px solid #cbd5e1; border-radius:18px; padding:20px; box-sizing:border-box; background:linear-gradient(180deg,#fff 0%,#f8fafc 100%); display:flex; flex-direction:column; gap:16px; min-height:100%; box-shadow:0 8px 22px rgba(15,23,42,.04);">
+            <div>
+              <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:12px;">
+                <h4 style="margin:0; font-size:18px;">Backup Funcionários</h4>
+                <span class="match-badge" style="background:#dcfce7;color:#166534;">Download</span>
+              </div>
+              <p class="muted" style="margin:0 0 14px; line-height:1.5;">Gera um backup das tabelas de funcionários e cargos para baixar e guardar.</p>
+              <div style="padding:14px; border:1px solid #e5e7eb; border-radius:14px; background:#fff; margin-bottom:14px;">
+                <strong style="display:block; margin-bottom:10px; font-size:13px; color:#475569; text-transform:uppercase; letter-spacing:.04em;">Backups disponíveis</strong>
+                ${backupFuncionariosFiles.length ? `<ul style="margin:0; padding-left:18px; display:grid; gap:8px;">${backupFuncionariosFiles.map((item) => `<li><a href="/painel/backup-restaurar/download-funcionarios/${encodeURIComponent(item)}">${esc(item)}</a></li>`).join('')}</ul>` : '<p class="muted" style="margin:0;">Nenhum backup de funcionários compactado gerado ainda.</p>'}
+              </div>
+            </div>
+            <form method="post" action="/painel/backup-restaurar/backup-funcionarios" onsubmit="return confirmarSenhaAcaoBackup(event, 'criar o backup de funcionários')" style="margin:0; display:flex; flex-direction:column; gap:14px; align-items:flex-start;">
+              <input type="hidden" name="senha" value="" />
+              <button type="submit">Backup Funcionários</button>
+            </form>
+          </div>
+        </div>
+      <script>
+        function confirmarSenhaAcaoBackup(event, acao, mensagemConfirmacao = '') {
+          const senha = window.prompt('Digite a senha para ' + acao + ':');
+          if (!senha) return false;
+          if (mensagemConfirmacao) {
+            const confirmar = window.confirm(mensagemConfirmacao);
+            if (!confirmar) return false;
+          }
+          event.target.querySelector('input[name="senha"]').value = senha;
+          return true;
+        }
+      </script>
     `,
   }));
 });
 
 app.post('/painel/backup-restaurar/backup-imoveis', auth, async (req, res) => {
+  if (!validarSenhaPainel(req.body.senha)) return res.status(403).send('Senha inválida');
   execFile(path.join(__dirname, '..', 'scripts', 'backup-imoveis.sh'), [], { cwd: path.join(__dirname, '..') }, (error, stdout, stderr) => {
     if (error) {
       return res.redirect(`/painel/backup-restaurar?erro=${encodeURIComponent(stderr || error.message)}`);
@@ -1899,6 +2008,7 @@ app.get('/painel/backup-restaurar/download-imoveis/:file', auth, async (req, res
 });
 
 app.post('/painel/backup-restaurar/backup-clientes', auth, async (req, res) => {
+  if (!validarSenhaPainel(req.body.senha)) return res.status(403).send('Senha inválida');
   execFile(path.join(__dirname, '..', 'scripts', 'backup-clientes.sh'), [], { cwd: path.join(__dirname, '..') }, (error, stdout, stderr) => {
     if (error) {
       return res.redirect(`/painel/backup-restaurar?erro=${encodeURIComponent(stderr || error.message)}`);
@@ -1916,7 +2026,27 @@ app.get('/painel/backup-restaurar/download-clientes/:file', auth, async (req, re
   return res.download(fullPath);
 });
 
+app.post('/painel/backup-restaurar/backup-funcionarios', auth, async (req, res) => {
+  if (!validarSenhaPainel(req.body.senha)) return res.status(403).send('Senha inválida');
+  execFile(path.join(__dirname, '..', 'scripts', 'backup-funcionarios.sh'), [], { cwd: path.join(__dirname, '..') }, (error, stdout, stderr) => {
+    if (error) {
+      return res.redirect(`/painel/backup-restaurar?erro=${encodeURIComponent(stderr || error.message)}`);
+    }
+    const lines = String(stdout || '').trim().split('\n').filter(Boolean);
+    const output = lines.length ? lines[lines.length - 1] : 'Backup de funcionários criado com sucesso.';
+    return res.redirect(`/painel/backup-restaurar?ok=${encodeURIComponent(output)}`);
+  });
+});
+
+app.get('/painel/backup-restaurar/download-funcionarios/:file', auth, async (req, res) => {
+  const file = path.basename(req.params.file || '');
+  const fullPath = path.join(__dirname, '..', 'backup_funcionarios', file);
+  if (!fs.existsSync(fullPath)) return res.status(404).send('Arquivo não encontrado');
+  return res.download(fullPath);
+});
+
 app.post('/painel/backup-restaurar/restore-imoveis-upload', auth, upload.single('backupFile'), async (req, res) => {
+  if (!validarSenhaPainel(req.body.senha)) return res.status(403).send('Senha inválida');
   if (!req.file) return res.redirect(`/painel/backup-restaurar?erro=${encodeURIComponent('Envie um arquivo de backup de imóveis.')}`);
   execFile(path.join(__dirname, '..', 'scripts', 'restore-imoveis.sh'), [req.file.path], { cwd: path.join(__dirname, '..') }, (error, stdout, stderr) => {
     try { if (req.file?.path && fs.existsSync(req.file.path)) fs.rmSync(req.file.path, { force: true }); } catch {}
@@ -1930,6 +2060,7 @@ app.post('/painel/backup-restaurar/restore-imoveis-upload', auth, upload.single(
 });
 
 app.post('/painel/backup-restaurar/restore-clientes-upload', auth, upload.single('backupFile'), async (req, res) => {
+  if (!validarSenhaPainel(req.body.senha)) return res.status(403).send('Senha inválida');
   if (!req.file) return res.redirect(`/painel/backup-restaurar?erro=${encodeURIComponent('Envie um arquivo de backup de clientes.')}`);
   execFile(path.join(__dirname, '..', 'scripts', 'restore-clientes.sh'), [req.file.path], { cwd: path.join(__dirname, '..') }, (error, stdout, stderr) => {
     try { if (req.file?.path && fs.existsSync(req.file.path)) fs.rmSync(req.file.path, { force: true }); } catch {}
@@ -1938,6 +2069,20 @@ app.post('/painel/backup-restaurar/restore-clientes-upload', auth, upload.single
     }
     const lines = String(stdout || '').trim().split('\n').filter(Boolean);
     const output = lines.length ? lines[lines.length - 1] : 'Restore de clientes concluído com sucesso.';
+    return res.redirect(`/painel/backup-restaurar?ok=${encodeURIComponent(output)}`);
+  });
+});
+
+app.post('/painel/backup-restaurar/restore-funcionarios-upload', auth, upload.single('backupFile'), async (req, res) => {
+  if (!validarSenhaPainel(req.body.senha)) return res.status(403).send('Senha inválida');
+  if (!req.file) return res.redirect(`/painel/backup-restaurar?erro=${encodeURIComponent('Envie um arquivo de backup de funcionários.')}`);
+  execFile(path.join(__dirname, '..', 'scripts', 'restore-funcionarios.sh'), [req.file.path], { cwd: path.join(__dirname, '..') }, (error, stdout, stderr) => {
+    try { if (req.file?.path && fs.existsSync(req.file.path)) fs.rmSync(req.file.path, { force: true }); } catch {}
+    if (error) {
+      return res.redirect(`/painel/backup-restaurar?erro=${encodeURIComponent(stderr || error.message)}`);
+    }
+    const lines = String(stdout || '').trim().split('\n').filter(Boolean);
+    const output = lines.length ? lines[lines.length - 1] : 'Restore de funcionários concluído com sucesso.';
     return res.redirect(`/painel/backup-restaurar?ok=${encodeURIComponent(output)}`);
   });
 });
@@ -3003,7 +3148,22 @@ function funcionarioFormValores(source = {}) {
     email: source.email || '',
     endereco: source.endereco || '',
     cargo_id: source.cargo_id || '',
+    codigo: source.codigo || '',
   };
+}
+
+function renderFuncionarioLinkFormulario(codigo, req = null) {
+  const link = montarLinkFormularioCorretor(codigo, req);
+  const inputId = `link-formulario-${normalizarCodigoFuncionario(codigo).toLowerCase() || 'novo'}`;
+  return `
+    <div class="field-full">
+      <label>Link do formulário</label>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+        <input id="${esc(inputId)}" value="${esc(link)}" readonly style="flex:1;min-width:280px;" />
+        <button type="button" class="btn-secondary" onclick="copiarLinkFuncionario('${esc(inputId)}')">Copiar</button>
+      </div>
+    </div>
+  `;
 }
 
 function validarCamposObrigatoriosFuncionario(payload) {
@@ -3020,8 +3180,9 @@ function fieldErrorClass(field, missingField) {
   return missingField === field ? 'input-error' : '';
 }
 
-async function gerarCodigoFuncionario(client) {
-  const usados = await client.query("SELECT codigo FROM funcionarios WHERE codigo LIKE 'COD%' ORDER BY codigo FOR UPDATE");
+async function gerarCodigoFuncionario(client, { lock = true } = {}) {
+  const sqlBase = "SELECT codigo FROM funcionarios WHERE codigo LIKE 'COD%' ORDER BY codigo";
+  const usados = await client.query(lock ? `${sqlBase} FOR UPDATE` : sqlBase);
   const numeros = usados.rows
     .map((r) => Number(String(r.codigo || '').replace(/^COD/, '')))
     .filter((n) => !Number.isNaN(n));
@@ -3057,7 +3218,7 @@ app.get('/painel/funcionarios', auth, async (req, res) => {
           </article>
           <article class="result-card">
             <h4>Criar/Editar cargo</h4>
-            <p class="muted">Mesmo padrão das categorias de imóveis, com ativar, desativar e exclusão bloqueada quando houver vínculo.</p>
+            <p class="muted">Criar Cargo, ativar, desativar e exclusão (exclusão bloqueada quando houver vínculo.)</p>
             <div class="result-actions"><a class="btn-link" href="/painel/funcionarios/cargos">Abrir cargos</a></div>
           </article>
         </div>
@@ -3103,7 +3264,6 @@ app.get('/painel/funcionarios/cargos', auth, async (req, res) => {
 
   res.send(shell({
     title: 'Cargos de funcionários',
-    subtitle: 'Mesmo padrão das categorias, com controle de ativação e exclusão segura.',
     active: 'cargos-funcionarios',
     content: `
       ${renderFormError(erro)}
@@ -3114,7 +3274,7 @@ app.get('/painel/funcionarios/cargos', auth, async (req, res) => {
             <div><label>Nome do cargo</label><input name="nome" value="${esc(v.nome)}" required /></div>
             <div><label>Ativo</label><select name="ativo"><option value="1" ${v.ativo ? 'selected' : ''}>Sim</option><option value="0" ${!v.ativo ? 'selected' : ''}>Não</option></select></div>
           </div>
-          <div class="filters-actions"><button type="submit">Cadastrar cargo</button></div>
+          <div class="filters-actions"><button type="submit">Cadastrar cargo</button><a href="/painel/funcionarios/novo"><button type="button" class="btn-secondary">Voltar para cadastro de funcionários</button></a></div>
         </form>
       </section>
       <section class="card">
@@ -3226,19 +3386,24 @@ app.get('/painel/funcionarios/novo', auth, async (req, res) => {
   const ok = req.query.ok ? decodeURIComponent(req.query.ok) : '';
   const missingField = req.query.missingField ? String(req.query.missingField) : '';
   const v = funcionarioFormValores(req.query);
-  const cargos = await pool.query('SELECT id, nome FROM cargos_funcionario WHERE ativo IS TRUE ORDER BY nome');
+  const [cargos, codigoPreview] = await Promise.all([
+    pool.query('SELECT id, nome FROM cargos_funcionario WHERE ativo IS TRUE ORDER BY nome'),
+    gerarCodigoFuncionario(pool, { lock: false }),
+  ]);
+  const linkFormularioPreview = renderFuncionarioLinkFormulario(codigoPreview, req);
   res.send(shell({
     title: 'Cadastrar funcionário',
-    subtitle: 'Cadastro com código automático, permanência na página e limpeza manual quando necessário.',
     active: 'novo-funcionario',
     content: `
       ${renderFormError(erro || ok)}
       <section class="card">
         <form method="post" action="/painel/funcionarios/novo">
           <div class="grid">
+            <div><label>Código</label><input value="${esc(codigoPreview)}" readonly /></div>
+            ${linkFormularioPreview}
             <div><label>Nome ${missingField === 'nome' ? '<span class="field-error-marker">*</span>' : ''}</label><input name="nome" value="${esc(v.nome)}" class="${fieldErrorClass('nome', missingField)}" required /></div>
             <div><label>Sobrenome ${missingField === 'sobrenome' ? '<span class="field-error-marker">*</span>' : ''}</label><input name="sobrenome" value="${esc(v.sobrenome)}" class="${fieldErrorClass('sobrenome', missingField)}" required /></div>
-            <div><label>Telefone ${missingField === 'telefone' ? '<span class="field-error-marker">*</span>' : ''}</label><input name="telefone" value="${v.telefone ? esc(formatarTelefone(v.telefone)) : ''}" class="${fieldErrorClass('telefone', missingField)}" placeholder="(51) 98035-7562" inputmode="numeric" oninput="let v=this.value.replace(/\D/g,'').slice(0,11);this.value=v.length>10?('('+v.slice(0,2)+') '+v.slice(2,7)+(v.length>7?'-'+v.slice(7):'')):v.length>6?('('+v.slice(0,2)+') '+v.slice(2,6)+(v.length>6?'-'+v.slice(6):'')):v.length>2?('('+v.slice(0,2)+') '+v.slice(2)):v;" required /></div>
+            <div><label>Telefone ${missingField === 'telefone' ? '<span class="field-error-marker">*</span>' : ''}</label><input name="telefone" value="${v.telefone ? esc(formatarTelefone(v.telefone)) : ''}" class="${fieldErrorClass('telefone', missingField)}" placeholder="(51) 98035-7562" inputmode="numeric" oninput="let v=this.value.replace(/[^0-9]/g,'').slice(0,11);this.value=v.length>10?('('+v.slice(0,2)+') '+v.slice(2,7)+(v.length>7?'-'+v.slice(7):'')):v.length>6?('('+v.slice(0,2)+') '+v.slice(2,6)+(v.length>6?'-'+v.slice(6):'')):v.length>2?('('+v.slice(0,2)+') '+v.slice(2)):v;" required /></div>
             <div><label>E-mail</label><input type="email" name="email" value="${esc(v.email)}" /></div>
             <div class="field-full"><label>Endereço</label><input name="endereco" value="${esc(v.endereco)}" /></div>
             <div><label>Cargo ${missingField === 'cargo_id' ? '<span class="field-error-marker">*</span>' : ''}</label><select name="cargo_id" class="${fieldErrorClass('cargo_id', missingField)}" required><option value="">Selecione</option>${cargos.rows.map((cargo) => `<option value="${cargo.id}" ${v.cargo_id === cargo.id ? 'selected' : ''}>${esc(cargo.nome)}</option>`).join('')}</select></div>
@@ -3250,6 +3415,20 @@ app.get('/painel/funcionarios/novo', auth, async (req, res) => {
           </div>
         </form>
       </section>
+      <script>
+        function copiarLinkFuncionario(id) {
+          const input = document.getElementById(id);
+          if (!input) return;
+          input.select();
+          input.setSelectionRange(0, input.value.length);
+          navigator.clipboard.writeText(input.value).then(() => {
+            window.alert('Link copiado para a área de transferência.');
+          }).catch(() => {
+            document.execCommand('copy');
+            window.alert('Link copiado para a área de transferência.');
+          });
+        }
+      </script>
     `,
   }));
 });
@@ -3323,6 +3502,13 @@ app.get('/painel/funcionarios/pesquisar', auth, async (req, res) => {
         <div><strong>Data alteração</strong>${formatarDataPtBr(item.data_alteracao)}</div>
       </div>
       <div class="card" style="margin-top:16px;padding:14px;"><strong>Endereço</strong><p>${esc(item.endereco || '-')}</p></div>
+      <div class="card" style="margin-top:16px;padding:14px;">
+        <strong>Link do formulário</strong>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:10px;">
+          <input id="link-formulario-${esc(String(item.codigo || '').toLowerCase())}" value="${esc(montarLinkFormularioCorretor(item.codigo, req))}" readonly style="flex:1;min-width:260px;" />
+          <button type="button" class="btn-secondary" onclick="copiarLinkFuncionario('link-formulario-${esc(String(item.codigo || '').toLowerCase())}')">Copiar</button>
+        </div>
+      </div>
       <div class="result-actions">
         <form method="post" action="/painel/funcionarios-editar-senha/${item.id}" class="inline-form" onsubmit="return confirmarSenhaAcaoFuncionario(event, 'editar')">
           <input type="hidden" name="senha" value="" />
@@ -3344,7 +3530,7 @@ app.get('/painel/funcionarios/pesquisar', auth, async (req, res) => {
         <form method="get" action="/painel/funcionarios/pesquisar">
           <div class="grid grid-3">
             <div><label>Nome</label><input name="nome" value="${esc(filtros.nome)}" list="funcionarios-nomes" autocomplete="off" /></div>
-            <div><label>Telefone</label><input name="telefone" value="${filtros.telefone ? esc(formatarTelefone(filtros.telefone)) : ''}" placeholder="(51) 98035-7562" inputmode="numeric" oninput="let v=this.value.replace(/\D/g,'').slice(0,11);this.value=v.length>10?('('+v.slice(0,2)+') '+v.slice(2,7)+(v.length>7?'-'+v.slice(7):'')):v.length>6?('('+v.slice(0,2)+') '+v.slice(2,6)+(v.length>6?'-'+v.slice(6):'')):v.length>2?('('+v.slice(0,2)+') '+v.slice(2)):v;" /></div>
+            <div><label>Telefone</label><input name="telefone" value="${filtros.telefone ? esc(formatarTelefone(filtros.telefone)) : ''}" placeholder="(51) 98035-7562" inputmode="numeric" oninput="let v=this.value.replace(/[^0-9]/g,'').slice(0,11);this.value=v.length>10?('('+v.slice(0,2)+') '+v.slice(2,7)+(v.length>7?'-'+v.slice(7):'')):v.length>6?('('+v.slice(0,2)+') '+v.slice(2,6)+(v.length>6?'-'+v.slice(6):'')):v.length>2?('('+v.slice(0,2)+') '+v.slice(2)):v;" /></div>
             <div><label>Cargo</label><select name="cargo_id"><option value="">Todos</option>${cargos.rows.map((cargo) => `<option value="${cargo.id}" ${filtros.cargo_id === cargo.id ? 'selected' : ''}>${esc(cargo.nome)}</option>`).join('')}</select></div>
           </div>
           <div class="filters-actions"><button type="submit">Pesquisar</button><a href="/painel/funcionarios/pesquisar">Limpar</a></div>
@@ -3362,6 +3548,18 @@ app.get('/painel/funcionarios/pesquisar', auth, async (req, res) => {
           }
           event.target.querySelector('input[name="senha"]').value = senha;
           return true;
+        }
+        function copiarLinkFuncionario(id) {
+          const input = document.getElementById(id);
+          if (!input) return;
+          input.select();
+          input.setSelectionRange(0, input.value.length);
+          navigator.clipboard.writeText(input.value).then(() => {
+            window.alert('Link copiado para a área de transferência.');
+          }).catch(() => {
+            document.execCommand('copy');
+            window.alert('Link copiado para a área de transferência.');
+          });
         }
       </script>
     `,
@@ -3383,6 +3581,7 @@ app.get('/painel/funcionarios-editar/:id', auth, async (req, res) => {
   if (!result.rows.length) return res.status(404).send('Funcionário não encontrado');
   const item = { ...result.rows[0], ...req.query };
   const v = funcionarioFormValores(item);
+  const linkFormulario = renderFuncionarioLinkFormulario(item.codigo, req);
   res.send(shell({
     title: `Editar funcionário ${item.codigo}`,
     subtitle: 'Edição protegida por senha do painel.',
@@ -3393,9 +3592,10 @@ app.get('/painel/funcionarios-editar/:id', auth, async (req, res) => {
         <form method="post" action="/painel/funcionarios-salvar/${item.id}?senha=${encodeURIComponent(req.query.senha || '')}">
           <div class="grid">
             <div><label>Código</label><input value="${esc(item.codigo)}" readonly /></div>
+            ${linkFormulario}
             <div><label>Nome ${missingField === 'nome' ? '<span class="field-error-marker">*</span>' : ''}</label><input name="nome" value="${esc(v.nome)}" class="${fieldErrorClass('nome', missingField)}" required /></div>
             <div><label>Sobrenome ${missingField === 'sobrenome' ? '<span class="field-error-marker">*</span>' : ''}</label><input name="sobrenome" value="${esc(v.sobrenome)}" class="${fieldErrorClass('sobrenome', missingField)}" required /></div>
-            <div><label>Telefone ${missingField === 'telefone' ? '<span class="field-error-marker">*</span>' : ''}</label><input name="telefone" value="${v.telefone ? esc(formatarTelefone(v.telefone)) : ''}" class="${fieldErrorClass('telefone', missingField)}" placeholder="(51) 98035-7562" inputmode="numeric" oninput="let v=this.value.replace(/\D/g,'').slice(0,11);this.value=v.length>10?('('+v.slice(0,2)+') '+v.slice(2,7)+(v.length>7?'-'+v.slice(7):'')):v.length>6?('('+v.slice(0,2)+') '+v.slice(2,6)+(v.length>6?'-'+v.slice(6):'')):v.length>2?('('+v.slice(0,2)+') '+v.slice(2)):v;" required /></div>
+            <div><label>Telefone ${missingField === 'telefone' ? '<span class="field-error-marker">*</span>' : ''}</label><input name="telefone" value="${v.telefone ? esc(formatarTelefone(v.telefone)) : ''}" class="${fieldErrorClass('telefone', missingField)}" placeholder="(51) 98035-7562" inputmode="numeric" oninput="let v=this.value.replace(/[^0-9]/g,'').slice(0,11);this.value=v.length>10?('('+v.slice(0,2)+') '+v.slice(2,7)+(v.length>7?'-'+v.slice(7):'')):v.length>6?('('+v.slice(0,2)+') '+v.slice(2,6)+(v.length>6?'-'+v.slice(6):'')):v.length>2?('('+v.slice(0,2)+') '+v.slice(2)):v;" required /></div>
             <div><label>E-mail</label><input type="email" name="email" value="${esc(v.email)}" /></div>
             <div class="field-full"><label>Endereço</label><input name="endereco" value="${esc(v.endereco)}" /></div>
             <div><label>Cargo ${missingField === 'cargo_id' ? '<span class="field-error-marker">*</span>' : ''}</label><select name="cargo_id" class="${fieldErrorClass('cargo_id', missingField)}" required><option value="">Selecione</option>${cargos.rows.map((cargo) => `<option value="${cargo.id}" ${v.cargo_id === cargo.id ? 'selected' : ''}>${esc(cargo.nome)}</option>`).join('')}</select></div>
@@ -3404,6 +3604,20 @@ app.get('/painel/funcionarios-editar/:id', auth, async (req, res) => {
           <div class="filters-actions"><button type="submit">Salvar funcionário</button><a href="/painel/funcionarios/pesquisar"><button type="button" class="btn-secondary">Cancelar</button></a></div>
         </form>
       </section>
+      <script>
+        function copiarLinkFuncionario(id) {
+          const input = document.getElementById(id);
+          if (!input) return;
+          input.select();
+          input.setSelectionRange(0, input.value.length);
+          navigator.clipboard.writeText(input.value).then(() => {
+            window.alert('Link copiado para a área de transferência.');
+          }).catch(() => {
+            document.execCommand('copy');
+            window.alert('Link copiado para a área de transferência.');
+          });
+        }
+      </script>
     `,
   }));
 });
