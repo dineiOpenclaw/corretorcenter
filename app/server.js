@@ -532,12 +532,7 @@ function clearAuthenticatedSession(res) {
 }
 
 function hasValidPanelCredentials(req) {
-  if (hasAuthenticatedSession(req)) return true;
-  const panelUser = String(process.env.PANEL_ADMIN_USER || '').trim();
-  const panelPass = String(process.env.PANEL_ADMIN_PASSWORD || '').trim();
-  if (!panelUser || !panelPass) return false;
-  const user = basicAuth(req);
-  return Boolean(user && user.name === panelUser && user.pass === panelPass);
+  return hasAuthenticatedSession(req);
 }
 
 function auth(req, res, next) {
