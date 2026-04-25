@@ -12,6 +12,11 @@ validate_domain() {
   [[ "$d" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$ ]]
 }
 
+validate_email() {
+  local email="${1}"
+  [[ "$email" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$ ]]
+}
+
 set_env_value() {
   local key="$1" value="$2" file="$3"
   python3 - "$key" "$value" "$file" <<'PY'
@@ -93,6 +98,15 @@ main() {
     exit 1
   fi
 
+  while true; do
+    echo ""
+    echo "O e-mail de recuperação é importante e deve ser um e-mail válido."
+    read -r -p "E-mail para recuperação de senha: " PANEL_RECOVERY_EMAIL
+    PANEL_RECOVERY_EMAIL="${PANEL_RECOVERY_EMAIL:-}"
+    validate_email "$PANEL_RECOVERY_EMAIL" && break
+    echo "E-mail inválido. Informe um endereço real para recuperação de acesso." >&2
+  done
+
   log "Atualizando .env"
   set_env_value PANEL_DOMAIN "$PANEL_DOMAIN" "$ENV_FILE"
   set_env_value FORM_DOMAIN "$FORM_DOMAIN" "$ENV_FILE"
@@ -100,6 +114,7 @@ main() {
   set_env_value IMAGES_DOMAIN "$IMAGES_DOMAIN" "$ENV_FILE"
   set_env_value PANEL_ADMIN_USER "$PANEL_ADMIN_USER" "$ENV_FILE"
   set_env_value PANEL_ADMIN_PASSWORD "$PANEL_ADMIN_PASSWORD" "$ENV_FILE"
+  set_env_value PANEL_RECOVERY_EMAIL "$PANEL_RECOVERY_EMAIL" "$ENV_FILE"
 
   log "Concluído. Próximo passo: ./scripts/install-wizard.sh"
 }

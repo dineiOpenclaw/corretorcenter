@@ -160,7 +160,7 @@ main() {
     exit 1
   fi
 
-  require_env_keys PANEL_DOMAIN FORM_DOMAIN GALLERY_DOMAIN IMAGES_DOMAIN PANEL_ADMIN_USER PANEL_ADMIN_PASSWORD
+  require_env_keys PANEL_DOMAIN FORM_DOMAIN GALLERY_DOMAIN IMAGES_DOMAIN PANEL_ADMIN_USER PANEL_ADMIN_PASSWORD PANEL_RECOVERY_EMAIL
 
   log "Garantindo dependências"
   ensure_cmd git git >/dev/null 2>&1 || true

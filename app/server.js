@@ -4,9 +4,11 @@ const { Pool } = require('pg');
 const path = require('path');
 const fs = require('fs');
 const { execFile } = require('child_process');
+const crypto = require('crypto');
 const { promisify } = require('util');
 const basicAuth = require('basic-auth');
 const multer = require('multer');
+const nodemailer = require('nodemailer');
 const execFileAsync = promisify(execFile);
 
 const app = express();
@@ -298,6 +300,136 @@ function getAuthRequiredMessage() {
   return process.env.AUTH_REQUIRED_MESSAGE || 'Autenticação necessária';
 }
 
+function getRecoveryEmail() {
+  return String(process.env.PANEL_RECOVERY_EMAIL || '').trim().toLowerCase();
+}
+
+function recoveryTokenFilePath() {
+  return path.join(__dirname, '..', 'storage', 'recovery-token.json');
+}
+
+function recoveryBaseUrl(req = null) {
+  const panelDomain = String(process.env.PANEL_DOMAIN || '').trim().toLowerCase();
+  if (panelDomain) return `https://${panelDomain}`;
+  if (req) return `${req.protocol}://${req.get('host')}`;
+  return '';
+}
+
+function recoveryLink(req, token) {
+  const base = recoveryBaseUrl(req);
+  return base ? `${base}/recuperar-acesso/redefinir?token=${encodeURIComponent(token)}` : `/recuperar-acesso/redefinir?token=${encodeURIComponent(token)}`;
+}
+
+function criarTokenRecuperacao() {
+  return crypto.randomBytes(32).toString('hex');
+}
+
+function hashTokenRecuperacao(token) {
+  return crypto.createHash('sha256').update(String(token || '')).digest('hex');
+}
+
+function lerRecuperacaoAtiva() {
+  const file = recoveryTokenFilePath();
+  if (!fs.existsSync(file)) return null;
+  try {
+    return JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+function salvarRecuperacaoAtiva(data) {
+  const file = recoveryTokenFilePath();
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify(data, null, 2));
+}
+
+function limparRecuperacaoAtiva() {
+  try { fs.unlinkSync(recoveryTokenFilePath()); } catch {}
+}
+
+function tokenRecuperacaoValido(token) {
+  const atual = lerRecuperacaoAtiva();
+  if (!atual || !atual.tokenHash || !atual.expiresAt) return { ok: false, reason: 'missing' };
+  if (new Date(atual.expiresAt).getTime() < Date.now()) return { ok: false, reason: 'expired' };
+  if (hashTokenRecuperacao(token) !== atual.tokenHash) return { ok: false, reason: 'invalid' };
+  return { ok: true, data: atual };
+}
+
+async function enviarEmailRecuperacao({ to, link }) {
+  const host = String(process.env.SMTP_HOST || '').trim();
+  const user = String(process.env.SMTP_USER || '').trim();
+  const pass = String(process.env.SMTP_PASSWORD || '').trim();
+  const from = String(process.env.SMTP_FROM || '').trim() || user;
+  const port = Number(process.env.SMTP_PORT || 587);
+  const secure = String(process.env.SMTP_SECURE || '').trim().toLowerCase() === 'true' || port === 465;
+  if (!host || !from) throw new Error('SMTP não configurado. Defina SMTP_HOST, SMTP_PORT, SMTP_FROM, SMTP_USER e SMTP_PASSWORD.');
+  const transporter = nodemailer.createTransport({ host, port, secure, auth: user ? { user, pass } : undefined });
+  await transporter.sendMail({
+    from,
+    to,
+    subject: 'Recuperação de acesso ao painel',
+    text: `Foi solicitada uma recuperação de acesso ao painel.\n\nUse este link para redefinir usuário e senha:\n${link}\n\nEste link expira em 30 minutos. Se você não solicitou essa recuperação, ignore este e-mail.`,
+    html: `<p>Foi solicitada uma recuperação de acesso ao painel.</p><p>Use este link para redefinir usuário e senha:</p><p><a href="${esc(link)}">${esc(link)}</a></p><p>Este link expira em 30 minutos. Se você não solicitou essa recuperação, ignore este e-mail.</p>`,
+  });
+}
+
+function renderRecoveryRequestPage({ error = '', ok = '', email = '' } = {}) {
+  return formShell({
+    title: 'Recuperação de acesso',
+    subtitle: 'Informe o e-mail de recuperação cadastrado para receber o link de redefinição.',
+    content: `
+      <section class="card" style="max-width:720px;margin:0 auto;">
+        ${error ? `<div class="card form-error">${esc(error)}</div>` : ''}
+        ${ok ? `<div class="card" style="border:1px solid #bbf7d0;background:#f0fdf4;color:#166534;font-weight:700;">${esc(ok)}</div>` : ''}
+        <form method="post" action="/recuperar-acesso">
+          <div class="search-blocks">
+            <div class="search-block">
+              <div class="grid-2">
+                <div class="field-full">
+                  <label>E-mail de recuperação</label>
+                  <input type="email" name="email" value="${esc(email)}" placeholder="recuperacao@seudominio.com" required />
+                  <small class="muted">Use o mesmo e-mail configurado na instalação.</small>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="filters-actions">
+            <button type="submit">Enviar link de recuperação</button>
+          </div>
+        </form>
+      </section>
+    `,
+  });
+}
+
+function renderRecoveryResetPage({ error = '', token = '', username = '', password = '', confirmPassword = '' } = {}) {
+  return formShell({
+    title: 'Redefinir acesso',
+    subtitle: 'Defina o novo usuário e a nova senha do painel.',
+    content: `
+      <section class="card" style="max-width:720px;margin:0 auto;">
+        ${error ? `<div class="card form-error">${esc(error)}</div>` : ''}
+        <form method="post" action="/recuperar-acesso/redefinir">
+          <input type="hidden" name="token" value="${esc(token)}" />
+          <div class="search-blocks">
+            <div class="search-block">
+              <div class="grid-2">
+                <div><label>Novo usuário do painel</label><input name="panelAdminUser" value="${esc(username)}" required /></div>
+                <div><label>Nova senha do painel</label><input type="password" name="panelAdminPassword" value="${esc(password)}" required /></div>
+                <div class="field-full"><label>Confirmar nova senha</label><input type="password" name="panelAdminPasswordConfirm" value="${esc(confirmPassword)}" required /></div>
+              </div>
+            </div>
+          </div>
+          <div class="filters-actions">
+            <button type="submit">Salvar novo acesso</button>
+          </div>
+        </form>
+      </section>
+    `,
+  });
+}
+
 function getExportErrorPrefix() {
   return process.env.EXPORT_ERROR_PREFIX || 'Erro ao gerar exportação';
 }
@@ -334,8 +466,9 @@ function auth(req, res, next) {
   }
   const user = basicAuth(req);
   if (!user || user.name !== panelUser || user.pass !== panelPass) {
+    const link = recoveryBaseUrl(req) ? `${recoveryBaseUrl(req)}/recuperar-acesso` : '/recuperar-acesso';
     res.set('WWW-Authenticate', `Basic realm="${getBasicAuthRealm()}"`);
-    return res.status(401).send(getAuthRequiredMessage());
+    return res.status(401).send(`${getAuthRequiredMessage()}. Para recuperar o acesso, abra: ${link}`);
   }
   next();
 }
@@ -382,42 +515,46 @@ function pareceDominio(value) {
   return /^[a-z0-9.-]+\.[a-z]{2,}$/.test(text);
 }
 
+function pareceEmailValido(value) {
+  const text = String(value || '').trim();
+  if (!text) return false;
+  return /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/.test(text);
+}
+
 function configuracoesSistemaValores(source = process.env) {
   return {
-    appName: source.appName || source.APP_NAME || '',
-    panelTitle: source.panelTitle || source.PANEL_TITLE || '',
-    panelSubtitlePdf: source.panelSubtitlePdf || source.PANEL_SUBTITLE_PDF || '',
-    publicFormTitle: source.publicFormTitle || source.PUBLIC_FORM_TITLE || '',
-    publicFormSubtitle: source.publicFormSubtitle || source.PUBLIC_FORM_SUBTITLE || '',
-    publicGalleryTitle: source.publicGalleryTitle || source.PUBLIC_GALLERY_HOME_TITLE || '',
-    leadFallbackName: source.leadFallbackName || source.PUBLIC_LEAD_FALLBACK_NAME || '',
-    themeHeaderBg: source.themeHeaderBg || source.THEME_HEADER_BG || '',
-    themeHeaderText: source.themeHeaderText || source.THEME_HEADER_TEXT || '',
-    themeBrandHighlight: source.themeBrandHighlight || source.THEME_BRAND_HIGHLIGHT || '',
-    themeMenuActiveBg: source.themeMenuActiveBg || source.THEME_MENU_ACTIVE_BG || '',
-    panelAdminUser: source.panelAdminUser || source.PANEL_ADMIN_USER || '',
-    panelAdminPassword: source.panelAdminPassword || '',
-    panelDomain: source.panelDomain || source.PANEL_DOMAIN || '',
-    formDomain: source.formDomain || source.FORM_DOMAIN || '',
-    galleryDomain: source.galleryDomain || source.GALLERY_DOMAIN || '',
-    imagesDomain: source.imagesDomain || source.IMAGES_DOMAIN || '',
-    panelDomain: source.panelDomain || source.PANEL_DOMAIN || '',
-    formDomain: source.formDomain || source.FORM_DOMAIN || '',
-    galleryDomain: source.galleryDomain || source.GALLERY_DOMAIN || '',
-    imagesDomain: source.imagesDomain || source.IMAGES_DOMAIN || '',
+    appName: source.appName || source.APP_NAME || "",
+    panelTitle: source.panelTitle || source.PANEL_TITLE || "",
+    panelSubtitlePdf: source.panelSubtitlePdf || source.PANEL_SUBTITLE_PDF || "",
+    publicFormTitle: source.publicFormTitle || source.PUBLIC_FORM_TITLE || "",
+    publicFormSubtitle: source.publicFormSubtitle || source.PUBLIC_FORM_SUBTITLE || "",
+    publicGalleryTitle: source.publicGalleryTitle || source.PUBLIC_GALLERY_HOME_TITLE || "",
+    leadFallbackName: source.leadFallbackName || source.PUBLIC_LEAD_FALLBACK_NAME || "",
+    themeHeaderBg: source.themeHeaderBg || source.THEME_HEADER_BG || "",
+    themeHeaderText: source.themeHeaderText || source.THEME_HEADER_TEXT || "",
+    themeBrandHighlight: source.themeBrandHighlight || source.THEME_BRAND_HIGHLIGHT || "",
+    themeMenuActiveBg: source.themeMenuActiveBg || source.THEME_MENU_ACTIVE_BG || "",
+    panelAdminUser: source.panelAdminUser || source.PANEL_ADMIN_USER || "",
+    panelAdminPassword: source.panelAdminPassword || "",
+    panelRecoveryEmail: source.panelRecoveryEmail || source.PANEL_RECOVERY_EMAIL || "",
+    panelDomain: source.panelDomain || source.PANEL_DOMAIN || "",
+    formDomain: source.formDomain || source.FORM_DOMAIN || "",
+    galleryDomain: source.galleryDomain || source.GALLERY_DOMAIN || "",
+    imagesDomain: source.imagesDomain || source.IMAGES_DOMAIN || "",
   };
 }
 
 function montarStatusConfiguracaoSistema() {
   const env = configuracoesSistemaValores();
   const checks = [
-    { label: 'Identidade básica', ok: Boolean(env.appName && env.panelTitle), hint: 'Defina nome do sistema e título do painel.' },
-    { label: 'Acesso do painel', ok: Boolean(env.panelAdminUser && process.env.PANEL_ADMIN_PASSWORD), hint: 'Configure usuário e senha do painel.' },
-    { label: 'Domínio do painel', ok: Boolean(env.panelDomain), hint: 'Informe o domínio principal do painel administrativo.' },
-    { label: 'Domínio do formulário', ok: Boolean(env.formDomain), hint: 'Informe onde o formulário público ficará disponível.' },
-    { label: 'Domínio da galeria', ok: Boolean(env.galleryDomain), hint: 'Informe o domínio da galeria pública.' },
-    { label: 'Domínio das imagens', ok: Boolean(env.imagesDomain), hint: 'Informe o domínio base dos arquivos de imagem.' },
-    { label: 'Logo da empresa', ok: Boolean(logoTag()), hint: 'Envie a logo da empresa para reforçar a identidade visual.' },
+    { label: "Identidade básica", ok: Boolean(env.appName && env.panelTitle), hint: "Defina nome do sistema e título do painel." },
+    { label: "Acesso do painel", ok: Boolean(env.panelAdminUser && process.env.PANEL_ADMIN_PASSWORD), hint: "Configure usuário e senha do painel." },
+    { label: "E-mail de recuperação", ok: pareceEmailValido(env.panelRecoveryEmail), hint: "Informe um e-mail válido para recuperação de acesso." },
+    { label: "Domínio do painel", ok: Boolean(env.panelDomain), hint: "Informe o domínio principal do painel administrativo." },
+    { label: "Domínio do formulário", ok: Boolean(env.formDomain), hint: "Informe onde o formulário público ficará disponível." },
+    { label: "Domínio da galeria", ok: Boolean(env.galleryDomain), hint: "Informe o domínio da galeria pública." },
+    { label: "Domínio das imagens", ok: Boolean(env.imagesDomain), hint: "Informe o domínio base dos arquivos de imagem." },
+    { label: "Logo da empresa", ok: Boolean(logoTag()), hint: "Envie a logo da empresa para reforçar a identidade visual." },
   ];
   const concluidos = checks.filter((item) => item.ok).length;
   const total = checks.length;
@@ -1109,6 +1246,76 @@ app.get('/', (req, res) => {
     }));
   }
   return res.redirect('/painel');
+});
+
+app.get('/recuperar-acesso', (req, res) => {
+  return res.send(renderRecoveryRequestPage({
+    error: req.query.erro ? decodeURIComponent(req.query.erro) : '',
+    ok: req.query.ok ? decodeURIComponent(req.query.ok) : '',
+    email: req.query.email ? decodeURIComponent(req.query.email) : '',
+  }));
+});
+
+app.post('/recuperar-acesso', async (req, res) => {
+  const email = String(req.body.email || '').trim().toLowerCase();
+  const recoveryEmail = getRecoveryEmail();
+  if (!pareceEmailValido(email)) {
+    return res.status(400).send(renderRecoveryRequestPage({ error: 'Informe um e-mail válido.', email }));
+  }
+  if (!recoveryEmail || email !== recoveryEmail) {
+    return res.send(renderRecoveryRequestPage({ ok: 'Se o e-mail informado estiver cadastrado, você receberá um link de recuperação.', email: '' }));
+  }
+  try {
+    const token = criarTokenRecuperacao();
+    const expiresAt = new Date(Date.now() + (30 * 60 * 1000)).toISOString();
+    salvarRecuperacaoAtiva({ tokenHash: hashTokenRecuperacao(token), expiresAt, requestedAt: new Date().toISOString() });
+    await enviarEmailRecuperacao({ to: recoveryEmail, link: recoveryLink(req, token) });
+    return res.send(renderRecoveryRequestPage({ ok: 'Se o e-mail informado estiver cadastrado, você receberá um link de recuperação.', email: '' }));
+  } catch (error) {
+    console.error('ERRO RECUPERACAO EMAIL', error);
+    return res.status(500).send(renderRecoveryRequestPage({ error: error.message || 'Não foi possível enviar o e-mail de recuperação.', email }));
+  }
+});
+
+app.get('/recuperar-acesso/redefinir', (req, res) => {
+  const token = String(req.query.token || '').trim();
+  const status = tokenRecuperacaoValido(token);
+  if (!token || !status.ok) {
+    return res.status(400).send(renderRecoveryRequestPage({ error: 'Link de recuperação inválido ou expirado.' }));
+  }
+  return res.send(renderRecoveryResetPage({ token }));
+});
+
+app.post('/recuperar-acesso/redefinir', (req, res) => {
+  const token = String(req.body.token || '').trim();
+  const panelAdminUser = String(req.body.panelAdminUser || '').trim();
+  const panelAdminPassword = String(req.body.panelAdminPassword || '').trim();
+  const panelAdminPasswordConfirm = String(req.body.panelAdminPasswordConfirm || '').trim();
+  const status = tokenRecuperacaoValido(token);
+  if (!token || !status.ok) {
+    return res.status(400).send(renderRecoveryRequestPage({ error: 'Link de recuperação inválido ou expirado.' }));
+  }
+  if (!panelAdminUser) {
+    return res.status(400).send(renderRecoveryResetPage({ error: 'Informe o novo usuário do painel.', token, username: panelAdminUser }));
+  }
+  if (panelAdminPassword.length < 6) {
+    return res.status(400).send(renderRecoveryResetPage({ error: 'A nova senha do painel deve ter pelo menos 6 caracteres.', token, username: panelAdminUser }));
+  }
+  if (panelAdminPassword !== panelAdminPasswordConfirm) {
+    return res.status(400).send(renderRecoveryResetPage({ error: 'A confirmação da senha não confere.', token, username: panelAdminUser }));
+  }
+  atualizarEnvValores({ PANEL_ADMIN_USER: panelAdminUser, PANEL_ADMIN_PASSWORD: panelAdminPassword });
+  limparRecuperacaoAtiva();
+  return res.send(formShell({
+    title: 'Acesso redefinido',
+    subtitle: 'Usuário e senha atualizados com sucesso.',
+    content: `
+      <section class="card" style="max-width:720px;margin:0 auto;border:1px solid #bbf7d0;background:#f0fdf4;color:#166534;">
+        <strong>Recuperação concluída.</strong>
+        <p style="margin:12px 0 0;">O novo acesso já está valendo. Volte ao painel e entre com as credenciais atualizadas.</p>
+      </section>
+    `,
+  }));
 });
 
 app.get('/formulario/matches', async (req, res) => {
@@ -1932,9 +2139,9 @@ app.get('/painel/configuracoes', auth, async (req, res) => {
     {
       titulo: 'Etapa 2, acesso',
       descricao: 'Configure como o usuário entra no painel.',
-      ok: Boolean(v.panelAdminUser && process.env.PANEL_ADMIN_PASSWORD),
-      itens: ['Usuário do painel', 'Senha do painel'],
-      recomendacao: 'Defina o usuário e confirme a senha que será usada no painel.',
+      ok: Boolean(v.panelAdminUser && process.env.PANEL_ADMIN_PASSWORD && pareceEmailValido(v.panelRecoveryEmail)),
+      itens: ["Usuário do painel", "Senha do painel", "E-mail de recuperação"],
+      recomendacao: "Defina o usuário, confirme a senha e informe um e-mail válido para recuperação do painel.",
     },
     {
       titulo: 'Etapa 3, domínios',
@@ -2043,6 +2250,7 @@ app.get('/painel/configuracoes', auth, async (req, res) => {
               <div class="grid-2">
                 <div><label>Usuário do painel</label><input name="panelAdminUser" value="${esc(v.panelAdminUser)}" placeholder="Ex.: admin" required /><small class="muted">Usuário usado para entrar no painel.</small></div>
                 <div><label>Nova senha do painel</label><input type="password" name="panelAdminPassword" value="" placeholder="Preencha só se quiser trocar" /><small class="muted">Deixe em branco para manter a senha atual.</small></div>
+                <div class="field-full"><label>E-mail de recuperação</label><input type="email" name="panelRecoveryEmail" value="${esc(v.panelRecoveryEmail)}" placeholder="recuperacao@seudominio.com" required /><small class="muted">Importante: informe um e-mail válido. Ele será usado para recuperação de usuário e senha.</small></div>
               </div>
             </div>
             <div class="search-block">
@@ -2096,6 +2304,9 @@ app.post('/painel/configuracoes', auth, upload.single('logo'), async (req, res) 
   if (!String(b.panelAdminUser || '').trim()) {
     return res.redirect(`/painel/configuracoes?erro=${encodeURIComponent('Informe o usuário do painel.')}`);
   }
+  if (!pareceEmailValido(b.panelRecoveryEmail)) {
+    return res.redirect(`/painel/configuracoes?erro=${encodeURIComponent("Informe um e-mail de recuperação válido.")}`);
+  }
   const dominios = [
     ['Domínio do painel', b.panelDomain],
     ['Domínio do formulário', b.formDomain],
@@ -2124,6 +2335,7 @@ app.post('/painel/configuracoes', auth, upload.single('logo'), async (req, res) 
     THEME_BRAND_HIGHLIGHT: b.themeBrandHighlight,
     THEME_MENU_ACTIVE_BG: b.themeMenuActiveBg,
     PANEL_ADMIN_USER: b.panelAdminUser,
+    PANEL_RECOVERY_EMAIL: b.panelRecoveryEmail,
     PANEL_DOMAIN: b.panelDomain,
     FORM_DOMAIN: b.formDomain,
     GALLERY_DOMAIN: b.galleryDomain,
