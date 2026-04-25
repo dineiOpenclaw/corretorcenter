@@ -211,6 +211,8 @@ function themeVarsCss() {
     '--theme-brand-highlight': process.env.THEME_BRAND_HIGHLIGHT || '#f4c542',
     '--theme-brand-subtext': process.env.THEME_BRAND_SUBTEXT || '#d1d5db',
     '--theme-menu-text': process.env.THEME_MENU_TEXT || '#ffffff',
+    '--theme-page-title': process.env.THEME_PAGE_TITLE || '#111827',
+    '--theme-page-subtitle': process.env.THEME_PAGE_SUBTITLE || '#6b7280',
     '--theme-menu-border': process.env.THEME_MENU_BORDER || 'rgba(255,255,255,.14)',
     '--theme-menu-active-bg': process.env.THEME_MENU_ACTIVE_BG || '#d4af37',
     '--theme-menu-active-text': process.env.THEME_MENU_ACTIVE_TEXT || '#111827',
@@ -246,7 +248,7 @@ function getPublicFormMatchTitle() {
 }
 
 function getPublicFormMatchHint() {
-  return process.env.PUBLIC_FORM_MATCH_HINT || 'Preencha com nome, número, cidade, tipo de imóvel e faixa de valor para ver sugestões';
+  return process.env.PUBLIC_FORM_MATCH_HINT || 'Preencha nome, telefone, cidade, tipo de imóvel e faixa de valor para ver sugestões';
 }
 
 function getPublicFormMatchLoadingText() {
@@ -606,7 +608,12 @@ function configuracoesSistemaValores(source = process.env) {
     themeHeaderBg: source.themeHeaderBg || source.THEME_HEADER_BG || "",
     themeHeaderText: source.themeHeaderText || source.THEME_HEADER_TEXT || "",
     themeBrandHighlight: source.themeBrandHighlight || source.THEME_BRAND_HIGHLIGHT || "",
+    themeBrandSubtext: source.themeBrandSubtext || source.THEME_BRAND_SUBTEXT || "",
+    themeMenuText: source.themeMenuText || source.THEME_MENU_TEXT || "",
+    themePageTitle: source.themePageTitle || source.THEME_PAGE_TITLE || "",
+    themePageSubtitle: source.themePageSubtitle || source.THEME_PAGE_SUBTITLE || "",
     themeMenuActiveBg: source.themeMenuActiveBg || source.THEME_MENU_ACTIVE_BG || "",
+    themeMenuActiveText: source.themeMenuActiveText || source.THEME_MENU_ACTIVE_TEXT || "",
     panelAdminUser: source.panelAdminUser || source.PANEL_ADMIN_USER || "",
     panelAdminPassword: source.panelAdminPassword || "",
     panelRecoveryEmail: source.panelRecoveryEmail || source.PANEL_RECOVERY_EMAIL || "",
@@ -685,7 +692,7 @@ async function montarStatusManutencaoSistema() {
   const changeGroups = [
     { label: 'Dependências', ok: detectedChanges.some((item) => item === 'package.json' || item === 'package-lock.json') },
     { label: 'Backend', ok: detectedChanges.includes('app/server.js') },
-    { label: 'Caddy / setup', ok: detectedChanges.some((item) => item.includes('caddy') || item === 'scripts/install-wizard.sh' || item === '.env.example') },
+    { label: 'Proxy / setup', ok: detectedChanges.some((item) => item.includes('caddy') || item === 'scripts/install-wizard.sh' || item === '.env.example') },
     { label: 'Service', ok: detectedChanges.includes('deploy/corretorcenter.service.example') },
     { label: 'Update assistido', ok: detectedChanges.includes('scripts/update-assisted.sh') },
   ];
@@ -869,7 +876,7 @@ function maintenanceActionSteps(action) {
     'regenerar-artefatos': [
       'Ler configuração atual',
       'Gerar arquivos do setup',
-      'Atualizar artefatos do painel e Caddy',
+      'Atualizar artefatos do painel e setup',
     ],
     'rodar-update': [
       'Criar backup de segurança',
@@ -1098,7 +1105,7 @@ function calcularCompatibilidade(imovel, cliente) {
 }
 
 async function buscarMatchesParaCliente(cliente, limit = 5) {
-  const imoveis = await pool.query(`SELECT i.*, c.nome_exibicao AS categoria_nome FROM imoveis i LEFT JOIN categorias_imovel c ON c.slug = i.categoria_slug ORDER BY i.created_at DESC`);
+  const imoveis = await pool.query(`SELECT i.*, c.nome_exibicao AS categoria_nome FROM imoveis i LEFT JOIN categorias_imovel c ON c.slug = i.categoria_slug WHERE lower(coalesce(i.status_publicacao, 'disponivel')) = 'disponivel' ORDER BY i.created_at DESC`);
   const matches = [];
   for (const imovel of imoveis.rows) {
     const match = calcularCompatibilidade(imovel, cliente);
@@ -1121,6 +1128,24 @@ async function carregarOportunidades(limit = 5) {
   }
   oportunidades.sort((a, b) => b.score - a.score || String(a.imovel.codigo).localeCompare(String(b.imovel.codigo)));
   return oportunidades.slice(0, limit);
+}
+
+function montarClientePreviewMatch(source = {}) {
+  return {
+    nome: String(source.nome || '').trim(),
+    telefone: normalizarTelefone(source.telefone || ''),
+    cidade: String(source.cidade || '').trim(),
+    bairro: String(source.bairro || '').trim(),
+    tipo_imovel_desejado: String(source.tipo_imovel_desejado || '').trim(),
+    estado_imovel_desejado: String(source.estado_imovel_desejado || '').trim(),
+    numero_quartos_desejado: normalizarNumeroFormulario(source.numero_quartos_desejado),
+    numero_banheiros_desejado: normalizarNumeroFormulario(source.numero_banheiros_desejado),
+    numero_vagas_garagem_desejada: normalizarNumeroFormulario(source.numero_vagas_garagem_desejada),
+    numero_suites_desejada: normalizarNumeroFormulario(source.numero_suites_desejada),
+    valor_minimo: normalizarNumeroFormulario(source.valor_minimo, { decimal: true }),
+    valor_maximo: normalizarNumeroFormulario(source.valor_maximo, { decimal: true }),
+    tipo_pagamento: String(source.tipo_pagamento || '').trim(),
+  };
 }
 
 async function carregarSugestoesLocalizacao() {
@@ -1411,6 +1436,9 @@ app.post('/recuperar-acesso/redefinir', (req, res) => {
       <section class="card" style="max-width:720px;margin:0 auto;border:1px solid #bbf7d0;background:#f0fdf4;color:#166534;">
         <strong>Recuperação concluída.</strong>
         <p style="margin:12px 0 0;">O novo acesso já está valendo. Volte ao painel e entre com as credenciais atualizadas.</p>
+        <div class="filters-actions" style="margin-top:18px;">
+          <a class="btn-link" href="/">Fazer login</a>
+        </div>
       </section>
     `,
   }));
@@ -1489,8 +1517,8 @@ app.get('/formulario', async (req, res) => {
             <div><label for="numero_suites_desejada">N° suíte</label><input id="numero_suites_desejada" name="numero_suites_desejada" type="text" data-numero="inteiro" value="${esc(v.numero_suites_desejada)}" /></div>
             <div><label for="valor_minimo">Valor mínimo</label><input id="valor_minimo" name="valor_minimo" type="text" data-numero="decimal" value="${esc(v.valor_minimo)}" required /></div>
             <div><label for="valor_maximo">Valor máximo</label><input id="valor_maximo" name="valor_maximo" type="text" data-numero="decimal" value="${esc(v.valor_maximo)}" required /></div>
-            <div><label>Cidade de interesse</label><select name="cidade" id="form-cidade" required><option value="">Selecione</option>${cidades.map((item) => `<option value="${esc(item.cidade)}" ${v.cidade === item.cidade ? 'selected' : ''}>${esc(item.cidade)}</option>`).join('')}</select></div>
-            <div><label>Bairro de interesse</label><select name="bairro" id="form-bairro"><option value="">Selecione</option></select></div>
+            <div><label>Cidade de interesse</label><input name="cidade" id="form-cidade" value="${esc(v.cidade)}" list="cidades-imoveis" autocomplete="off" required /></div>
+            <div><label>Bairro de interesse</label><input name="bairro" id="form-bairro" value="${esc(v.bairro)}" list="bairros-imoveis" autocomplete="off" /></div>
             <div><label>Proposta</label>${selectTipoPagamento(v.tipo_pagamento)}</div>
             <div class="field-full"><label>Observações</label><textarea name="resumo_atendimento">${esc(v.resumo_atendimento)}</textarea></div>
           </div>
@@ -1500,13 +1528,13 @@ app.get('/formulario', async (req, res) => {
         </form>
         <script>
           document.addEventListener('DOMContentLoaded', () => {
-            const cidadeSelect = document.getElementById('form-cidade');
-            const bairroSelect = document.getElementById('form-bairro');
+            const cidadeInput = document.getElementById('form-cidade');
+            const bairroInput = document.getElementById('form-bairro');
             const matchesStatus = document.getElementById('form-matches-status');
             const matchesList = document.getElementById('form-matches-list');
             const form = document.querySelector('form[action="/formulario"]');
             const bairrosPorCidade = ${JSON.stringify(bairrosPorCidade)};
-            let bairroAtual = ${JSON.stringify(v.bairro || '')};
+            const bairrosList = document.getElementById('bairros-imoveis');
 
             const escapeHtml = (value) => String(value || '')
               .replace(/&/g, '&amp;')
@@ -1515,14 +1543,10 @@ app.get('/formulario', async (req, res) => {
               .replace(/"/g, '&quot;');
 
             const renderBairros = () => {
-              const cidade = String(cidadeSelect?.value || '').trim();
+              if (!cidadeInput || !bairroInput || !bairrosList) return;
+              const cidade = String(cidadeInput.value || '').trim();
               const bairros = bairrosPorCidade[cidade] || [];
-              const bairroSelecionado = bairros.includes(bairroAtual) ? bairroAtual : '';
-              const options = ['<option value="">Selecione</option>'].concat(
-                bairros.map((bairro) => '<option value="' + escapeHtml(bairro) + '" ' + (bairro === bairroSelecionado ? 'selected' : '') + '>' + escapeHtml(bairro) + '</option>')
-              );
-              bairroSelect.innerHTML = options.join('');
-              if (!bairroSelecionado) bairroSelect.value = '';
+              bairrosList.innerHTML = bairros.map((bairro) => '<option value="' + escapeHtml(bairro) + '"></option>').join('');
             };
 
             const renderMatches = async () => {
@@ -1552,22 +1576,23 @@ app.get('/formulario', async (req, res) => {
               }
             };
 
-            if (cidadeSelect && bairroSelect) {
-              cidadeSelect.addEventListener('change', () => {
-                bairroAtual = '';
+            if (cidadeInput && bairroInput) {
+              cidadeInput.addEventListener('input', () => {
                 renderBairros();
                 renderMatches();
               });
-              bairroSelect.addEventListener('change', () => {
-                bairroAtual = String(bairroSelect.value || '').trim();
+              cidadeInput.addEventListener('change', () => {
+                renderBairros();
                 renderMatches();
               });
+              bairroInput.addEventListener('input', renderMatches);
+              bairroInput.addEventListener('change', renderMatches);
               renderBairros();
             }
 
             if (form) {
               form.querySelectorAll('input, select, textarea').forEach((el) => {
-                if (el === cidadeSelect || el === bairroSelect) return;
+                if (el === cidadeInput || el === bairroInput) return;
                 el.addEventListener('change', renderMatches);
                 el.addEventListener('input', renderMatches);
               });
@@ -1576,6 +1601,7 @@ app.get('/formulario', async (req, res) => {
             renderMatches();
           });
         </script>
+        ${renderLocationDatalists({ cidades, bairrosPorCidade })}
       </section>
     `,
   }));
@@ -1999,9 +2025,6 @@ app.get('/painel/manutencao', auth, async (req, res) => {
           <h3 style="margin-top:0;">Status operacional</h3>
           <div class="maintenance-list">
             <div class="maintenance-item"><strong>Serviço principal instalado</strong><span class="match-badge ${status.servicePublished ? 'match-alto' : 'match-baixo'}">${status.servicePublished ? 'pronto' : 'não encontrado'}</span></div>
-            <div class="maintenance-item"><strong>Publicação Caddy básica</strong><span class="match-badge ${status.caddyPublished ? 'match-alto' : 'match-baixo'}">${status.caddyPublished ? 'pronta' : 'não encontrada'}</span></div>
-            <div class="maintenance-item"><strong>Publicação Caddy completa</strong><span class="match-badge ${status.caddyMultiPublished ? 'match-alto' : 'match-baixo'}">${status.caddyMultiPublished ? 'pronta' : 'não encontrada'}</span></div>
-            <div class="maintenance-item"><strong>Arquivo final de segurança HTTPS</strong><span class="match-badge ${status.sslGenerated ? 'match-alto' : 'match-baixo'}">${status.sslGenerated ? 'pronto' : 'pendente'}</span></div>
             <div class="maintenance-item"><strong>Endereços principais preenchidos</strong><span class="match-badge ${status.domainsReady ? 'match-alto' : 'match-baixo'}">${status.domainsReady ? 'ok' : 'pendente'}</span></div>
           </div>
         </article>
@@ -2338,9 +2361,14 @@ app.get('/painel/configuracoes', auth, async (req, res) => {
               <h3>Cores principais</h3>
               <div class="grid-2">
                 <div><label>Fundo do cabeçalho</label><input name="themeHeaderBg" value="${esc(v.themeHeaderBg)}" placeholder="#111827" /></div>
-                <div><label>Texto do cabeçalho</label><input name="themeHeaderText" value="${esc(v.themeHeaderText)}" placeholder="#ffffff" /></div>
-                <div><label>Destaque da marca</label><input name="themeBrandHighlight" value="${esc(v.themeBrandHighlight)}" placeholder="#f4c542" /></div>
+                <div><label>Texto geral do cabeçalho</label><input name="themeHeaderText" value="${esc(v.themeHeaderText)}" placeholder="#ffffff" /></div>
+                <div><label>Nome da empresa</label><input name="themeBrandHighlight" value="${esc(v.themeBrandHighlight)}" placeholder="#f4c542" /></div>
+                <div><label>Nome da pagina atual</label><input name="themeBrandSubtext" value="${esc(v.themeBrandSubtext)}" placeholder="#d1d5db" /></div>
+                <div><label>Texto do menu</label><input name="themeMenuText" value="${esc(v.themeMenuText)}" placeholder="#ffffff" /></div>
+                <div><label>Título da página</label><input name="themePageTitle" value="${esc(v.themePageTitle)}" placeholder="#111827" /></div>
+                <div><label>Subtítulo da página</label><input name="themePageSubtitle" value="${esc(v.themePageSubtitle)}" placeholder="#6b7280" /></div>
                 <div><label>Fundo do menu ativo</label><input name="themeMenuActiveBg" value="${esc(v.themeMenuActiveBg)}" placeholder="#d4af37" /></div>
+                <div><label>Texto do menu ativo</label><input name="themeMenuActiveText" value="${esc(v.themeMenuActiveText)}" placeholder="#111827" /></div>
               </div>
             </div>
             <div class="search-block">
@@ -2431,7 +2459,12 @@ app.post('/painel/configuracoes', auth, upload.single('logo'), async (req, res) 
     THEME_HEADER_BG: b.themeHeaderBg,
     THEME_HEADER_TEXT: b.themeHeaderText,
     THEME_BRAND_HIGHLIGHT: b.themeBrandHighlight,
+    THEME_BRAND_SUBTEXT: b.themeBrandSubtext,
+    THEME_MENU_TEXT: b.themeMenuText,
+    THEME_PAGE_TITLE: b.themePageTitle,
+    THEME_PAGE_SUBTITLE: b.themePageSubtitle,
     THEME_MENU_ACTIVE_BG: b.themeMenuActiveBg,
+    THEME_MENU_ACTIVE_TEXT: b.themeMenuActiveText,
     PANEL_ADMIN_USER: b.panelAdminUser,
     PANEL_RECOVERY_EMAIL: b.panelRecoveryEmail,
     PANEL_DOMAIN: b.panelDomain,
@@ -2459,7 +2492,11 @@ app.post('/painel/configuracoes', auth, upload.single('logo'), async (req, res) 
 });
 
 app.get('/painel/oportunidades', auth, async (req, res) => {
-  const oportunidades = await carregarOportunidades(100);
+  const previewCliente = montarClientePreviewMatch(req.query);
+  const temPreview = Boolean(previewCliente.cidade && previewCliente.tipo_imovel_desejado && (previewCliente.valor_minimo || previewCliente.valor_maximo));
+  const oportunidades = temPreview
+    ? (await buscarMatchesParaCliente(previewCliente, 100)).map((match) => ({ imovel: match.imovel, cliente: previewCliente, score: match.score, motivos: match.motivos }))
+    : await carregarOportunidades(100);
   const rows = oportunidades.length
     ? oportunidades.map(({ imovel, cliente, score, motivos }) => {
       const classeScore = score >= 75 ? 'match-alto' : score >= 60 ? 'match-medio' : 'match-baixo';
@@ -2493,9 +2530,10 @@ app.get('/painel/oportunidades', auth, async (req, res) => {
 
   res.send(shell({
     title: 'Oportunidades',
-    subtitle: 'Cruzamento entre imóveis e clientes com score de compatibilidade.',
+    subtitle: temPreview ? 'Pré-visualização de imóveis compatíveis com os dados preenchidos no cadastro do cliente.' : 'Cruzamento entre imóveis e clientes com score de compatibilidade.',
     active: 'oportunidades',
     content: `
+      ${temPreview ? `<section class="card" style="border:1px solid #bfdbfe;background:#eff6ff;color:#1d4ed8;font-weight:700;">Pré-visualização baseada nos dados atuais do cliente. Esse cliente ainda não precisa estar salvo para ver os imóveis compatíveis.</section>` : ''}
       <section class="card">
         <div class="results-grid">
           ${rows}
@@ -3386,9 +3424,18 @@ app.get('/painel/clientes', auth, async (req, res) => {
     ? await pool.query(`SELECT * FROM clientes WHERE ${where.join(' AND ')} ORDER BY data_cadastro DESC, id DESC LIMIT 100`, params)
     : { rows: [] };
 
-  const rows = result.rows.map((item) => `
+  const rows = (await Promise.all(result.rows.map(async (item) => {
+    const matches = await buscarMatchesParaCliente(item, 100);
+    const matchCount = matches.length;
+    const matchText = matchCount > 0
+      ? `<a href="/painel/oportunidades?nome=${encodeURIComponent(item.nome || '')}&telefone=${encodeURIComponent(item.telefone || '')}&cidade=${encodeURIComponent(item.cidade || '')}&bairro=${encodeURIComponent(item.bairro || '')}&tipo_imovel_desejado=${encodeURIComponent(item.tipo_imovel_desejado || '')}&estado_imovel_desejado=${encodeURIComponent(item.estado_imovel_desejado || '')}&numero_quartos_desejado=${encodeURIComponent(item.numero_quartos_desejado ?? '')}&numero_banheiros_desejado=${encodeURIComponent(item.numero_banheiros_desejado ?? '')}&numero_vagas_garagem_desejada=${encodeURIComponent(item.numero_vagas_garagem_desejada ?? '')}&numero_suites_desejada=${encodeURIComponent(item.numero_suites_desejada ?? '')}&valor_minimo=${encodeURIComponent(item.valor_minimo ?? '')}&valor_maximo=${encodeURIComponent(item.valor_maximo ?? '')}&tipo_pagamento=${encodeURIComponent(item.tipo_pagamento || '')}" class="link-destaque">${matchCount} imóveis compatíveis com esse cliente</a>`
+      : '<span class="muted">Nenhum imóvel compatível com esse cliente no momento.</span>';
+    return `
     <article class="result-card">
       <h4>${esc(item.nome || 'Cliente sem nome')}</h4>
+      <div class="card" style="margin-bottom:16px;padding:14px;background:#f9fafb;border:1px solid #e5e7eb;">
+        ${matchText}
+      </div>
       <div class="result-meta">
         <div><strong>Telefone</strong>${esc(formatarTelefone(item.telefone))}</div>
         <div><strong>${esc(getLeadBrokerLabel())}</strong>${esc(item.corretor || '-')}</div>
@@ -3425,7 +3472,8 @@ app.get('/painel/clientes', auth, async (req, res) => {
         </form>
       </div>
     </article>
-  `).join('');
+  `;
+  }))).join('');
 
   res.send(shell({
     title: 'Pesquisar clientes',
@@ -3564,6 +3612,9 @@ app.get('/painel/clientes/novo', auth, async (req, res) => {
       ${renderFormError(erro)}
       <section class="card">
         <form method="post" action="/painel/clientes/novo" data-validate-numeric="true">
+          <div id="cliente-match-preview" class="card" style="margin-bottom:16px;padding:14px;background:#f9fafb;border:1px solid #e5e7eb;">
+            <span id="cliente-match-preview-text" class="muted">Preencha cidade, tipo de imóvel e faixa de valor para ver imóveis compatíveis.</span>
+          </div>
           <div class="grid">
             <div><label>Telefone</label><input name="telefone" value="${v.telefone ? esc(formatarTelefone(v.telefone)) : ""}" placeholder="(51) 98035-7562" inputmode="numeric" oninput="let v=this.value.replace(/\\D/g,'').slice(0,11);this.value=v.length>10?('('+v.slice(0,2)+') '+v.slice(2,7)+(v.length>7?'-'+v.slice(7):'')):v.length>6?('('+v.slice(0,2)+') '+v.slice(2,6)+(v.length>6?'-'+v.slice(6):'')):v.length>2?('('+v.slice(0,2)+') '+v.slice(2)):v;" required /></div>
             <div><label>Nome</label><input name="nome" value="${esc(v.nome)}" /></div>
@@ -3588,9 +3639,80 @@ app.get('/painel/clientes/novo', auth, async (req, res) => {
           </div>
         </form>
         ${renderLocationDatalists({ cidades, bairrosPorCidade })}
+        <script>
+          document.addEventListener('DOMContentLoaded', () => {
+            const form = document.querySelector('form[action="/painel/clientes/novo"]');
+            const previewText = document.getElementById('cliente-match-preview-text');
+            if (!form || !previewText) return;
+
+            const updatePreview = async () => {
+              const data = new URLSearchParams(new FormData(form));
+              const cidade = String(data.get('cidade') || '').trim();
+              const tipo = String(data.get('tipo_imovel_desejado') || '').trim();
+              const min = String(data.get('valor_minimo') || '').trim();
+              const max = String(data.get('valor_maximo') || '').trim();
+              if (!cidade || !tipo || (!min && !max)) {
+                previewText.className = 'muted';
+                previewText.innerHTML = 'Preencha cidade, tipo de imóvel e faixa de valor para ver imóveis compatíveis.';
+                return;
+              }
+              previewText.className = 'muted';
+              previewText.textContent = 'Buscando imóveis compatíveis...';
+              try {
+                const resp = await fetch('/painel/clientes/novo/matches-count?' + data.toString());
+                const json = await resp.json();
+                if (json.total > 0) {
+                  previewText.className = 'link-destaque';
+                  previewText.innerHTML = '<a href="' + json.url + '" class="link-destaque">' + json.total + ' imóveis compatíveis com esse cliente</a>';
+                } else {
+                  previewText.className = 'muted';
+                  previewText.textContent = 'Nenhum imóvel compatível com esse cliente no momento.';
+                }
+              } catch {
+                previewText.className = 'muted';
+                previewText.textContent = 'Não foi possível carregar a prévia de compatibilidade agora.';
+              }
+            };
+
+            form.querySelectorAll('input, select, textarea').forEach((el) => {
+              el.addEventListener('change', updatePreview);
+              el.addEventListener('input', updatePreview);
+            });
+            updatePreview();
+          });
+        </script>
       </section>
     `,
   }));
+});
+
+
+app.get('/painel/clientes/novo/matches-count', auth, async (req, res) => {
+  try {
+    const cliente = montarClientePreviewMatch(req.query);
+    if (!cliente.cidade || !cliente.tipo_imovel_desejado || (!cliente.valor_minimo && !cliente.valor_maximo)) {
+      return res.json({ total: 0, url: '' });
+    }
+    const matches = await buscarMatchesParaCliente(cliente, 100);
+    const qs = new URLSearchParams({
+      nome: cliente.nome || '',
+      telefone: cliente.telefone || '',
+      cidade: cliente.cidade || '',
+      bairro: cliente.bairro || '',
+      tipo_imovel_desejado: cliente.tipo_imovel_desejado || '',
+      estado_imovel_desejado: cliente.estado_imovel_desejado || '',
+      numero_quartos_desejado: cliente.numero_quartos_desejado || '',
+      numero_banheiros_desejado: cliente.numero_banheiros_desejado || '',
+      numero_vagas_garagem_desejada: cliente.numero_vagas_garagem_desejada || '',
+      numero_suites_desejada: cliente.numero_suites_desejada || '',
+      valor_minimo: cliente.valor_minimo || '',
+      valor_maximo: cliente.valor_maximo || '',
+      tipo_pagamento: cliente.tipo_pagamento || '',
+    }).toString();
+    return res.json({ total: matches.length, url: `/painel/oportunidades?${qs}` });
+  } catch (error) {
+    return res.status(500).json({ total: 0, url: '', error: error.message });
+  }
 });
 
 app.post('/painel/clientes/novo', auth, async (req, res) => {
@@ -3748,7 +3870,7 @@ app.get('/painel/imoveis', async (req, res) => {
   const categorias = await carregarCategoriasAtivas();
   const temFiltros = Object.values(filtros).some((value) => String(value || '').trim() !== '');
   const result = temFiltros
-    ? await pool.query(`SELECT i.id, i.codigo, i.titulo, i.cidade, i.bairro, i.valor, i.area_total_m2, i.area_construida_m2, i.dimensao_frente_m, i.dimensao_fundos_m, i.numero_dormitorios, i.numero_suites, i.numero_banheiros, i.numero_vagas_garagem, i.posicao_solar, i.andar, i.estado_imovel, i.created_at,
+    ? await pool.query(`SELECT i.id, i.codigo, i.titulo, i.categoria_slug, i.descricao, i.cidade, i.bairro, i.valor, i.area_total_m2, i.area_construida_m2, i.dimensao_frente_m, i.dimensao_fundos_m, i.numero_dormitorios, i.numero_suites, i.numero_banheiros, i.numero_vagas_garagem, i.posicao_solar, i.andar, i.estado_imovel, i.created_at,
           COALESCE((
             SELECT json_agg(json_build_object('url', f.url_publica, 'ordem', f.ordem) ORDER BY f.ordem)
             FROM imovel_fotos f
@@ -3760,10 +3882,23 @@ app.get('/painel/imoveis', async (req, res) => {
         LIMIT 100`, params)
     : { rows: [] };
 
-  const rows = result.rows.map((item) => {
+  const clientesBaseMatch = await pool.query('SELECT * FROM clientes ORDER BY data_cadastro DESC, id DESC LIMIT 300');
+  const rows = (await Promise.all(result.rows.map(async (item) => {
+    const matchClientes = [];
+    for (const cliente of clientesBaseMatch.rows) {
+      const match = calcularCompatibilidade(item, cliente);
+      if (match.score >= MATCH_RULES.scoreMinimo) matchClientes.push(cliente);
+    }
+    const matchCount = matchClientes.length;
+    const matchText = matchCount > 0
+      ? `<a href="/painel/clientes?telefone=${encodeURIComponent(matchClientes[0].telefone || '')}" class="link-destaque">${matchCount} clientes compatíveis com esse imóvel</a>`
+      : '<span class="muted">Nenhum cliente compatível com esse imóvel no momento.</span>';
     return `
     <article class="result-card">
       <h4>${esc(item.codigo)}</h4>
+      <div class="card" style="margin-bottom:16px;padding:14px;background:#f9fafb;border:1px solid #e5e7eb;">
+        ${matchText}
+      </div>
       <div class="result-meta">
         <div><strong>Cidade</strong>${esc(item.cidade || '-')}</div>
         <div><strong>Bairro</strong>${esc(item.bairro || '-')}</div>
@@ -3800,7 +3935,8 @@ app.get('/painel/imoveis', async (req, res) => {
         </form>
       </div>
     </article>
-  `}).join('');
+  `;
+  }))).join('');
 
   res.send(shell({
     title: 'Pesquisar imóveis',
@@ -3916,6 +4052,7 @@ app.get('/imovel/:codigo/galeria', async (req, res) => {
     subtitle: `${item.titulo || item.codigo} · ${item.cidade || '-'} / ${item.bairro || '-'} · ${money(item.valor)}`,
     content: `
       <section class="card">
+        <h3 style="margin-top:0;margin-bottom:16px;">${esc(item.cidade || '-')} / ${esc(item.bairro || '-')}</h3>
         ${imagens}
       </section>
     `,
