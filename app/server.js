@@ -403,19 +403,25 @@ async function enviarEmailRecuperacao({ to, link }) {
     from,
     to,
     subject: 'Recuperação de acesso ao painel',
-    text: `Foi solicitada uma recuperação de acesso ao painel.\n\nUse este link para redefinir usuário e senha:\n${link}\n\nEste link expira em 30 minutos. Se você não solicitou essa recuperação, ignore este e-mail.`,
-    html: `<p>Foi solicitada uma recuperação de acesso ao painel.</p><p>Use este link para redefinir usuário e senha:</p><p><a href="${esc(link)}">${esc(link)}</a></p><p>Este link expira em 30 minutos. Se você não solicitou essa recuperação, ignore este e-mail.</p>`,
+    text: `Foi solicitada uma recuperação de acesso ao painel.\n\nUse este link para redefinir usuário e senha:\n${link}\n\nEste link expira em 5 minutos. Se você não solicitou essa recuperação, ignore este e-mail.`,
+    html: `<p>Foi solicitada uma recuperação de acesso ao painel.</p><p>Use este link para redefinir usuário e senha:</p><p><a href="${esc(link)}">${esc(link)}</a></p><p>Este link expira em 5 minutos. Se você não solicitou essa recuperação, ignore este e-mail.</p>`,
   });
 }
 
 function renderRecoveryRequestPage({ error = '', ok = '', email = '' } = {}) {
+  const successMode = Boolean(ok && !error);
   return formShell({
-    title: 'Recuperação de acesso',
-    subtitle: 'Informe o e-mail de recuperação cadastrado para receber o link de redefinição.',
+    title: successMode ? 'E-mail enviado' : 'Recuperação de acesso',
+    subtitle: successMode ? 'O pedido de recuperação foi enviado com sucesso.' : 'Informe o e-mail de recuperação cadastrado para receber o link de redefinição.',
     content: `
       <section class="card" style="max-width:720px;margin:0 auto;">
         ${error ? `<div class="card form-error">${esc(error)}</div>` : ''}
         ${ok ? `<div class="card" style="border:1px solid #bbf7d0;background:#f0fdf4;color:#166534;font-weight:700;">${esc(ok)}</div>` : ''}
+        ${successMode ? `
+          <div style="margin-top:16px;display:flex;justify-content:center;">
+            <a href="/recuperar-acesso"><button type="button">Enviar novamente</button></a>
+          </div>
+        ` : `
         <form method="post" action="/recuperar-acesso">
           <div class="search-blocks">
             <div class="search-block">
@@ -432,6 +438,7 @@ function renderRecoveryRequestPage({ error = '', ok = '', email = '' } = {}) {
             <button type="submit">Enviar link de recuperação</button>
           </div>
         </form>
+        `}
       </section>
     `,
   });
@@ -470,12 +477,14 @@ function renderSystemHomePage({ error = '', info = '' } = {}) {
     title: company,
     subtitle: 'Plataforma de gestão imobiliária',
     content: `
-      <section class="card" style="overflow:hidden;">
-        <div style="display:grid;grid-template-columns:minmax(0,1.2fr) minmax(320px,420px);gap:24px;align-items:center;">
-          <div>
-            <img src="/assets/logo-login.jpg" alt="Logo ${esc(company)}" style="max-width:240px;width:100%;height:auto;display:block;margin-bottom:18px;object-fit:contain;" />
-            <h2 class="page-title">${esc(company)}</h2>
-            <p class="page-subtitle" style="margin-bottom:20px;">Sistema profissional para gestão, atendimento e operação do seu negócio imobiliário.</p>
+      <section class="card login-home-card" style="overflow:hidden;">
+        <div class="login-home-grid">
+          <div class="login-home-brand-column">
+            <img src="/assets/logo-login.jpg" alt="Logo ${esc(company)}" class="login-home-logo" />
+            <div class="login-home-brand-copy">
+              <h2 class="page-title">${esc(company)}</h2>
+              <p class="page-subtitle" style="margin-bottom:20px;">Sistema profissional para gestão, atendimento e operação do seu negócio imobiliário.</p>
+            </div>
             <div class="search-block">
               <h3 style="margin-top:0;">Contato</h3>
               <div class="maintenance-list">
@@ -485,7 +494,7 @@ function renderSystemHomePage({ error = '', info = '' } = {}) {
               </div>
             </div>
           </div>
-          <div class="search-block">
+          <div class="search-block login-home-access-card">
             <h3 style="margin-top:0;">Acessar o sistema</h3>
             ${error ? `<div class="card form-error">${esc(error)}</div>` : ''}
             ${info ? `<div class="card" style="border:1px solid #bbf7d0;background:#f0fdf4;color:#166534;font-weight:700;">${esc(info)}</div>` : ''}
@@ -1475,7 +1484,7 @@ app.use('/painel', (req, res, next) => {
   if (req.path.startsWith('/imoveis-pdf/')) return next();
   return auth(req, res, next);
 });
-app.get('/', (req, res) => {
+app.get('/', async (req, res) => {
   const host = String(req.headers.host || '').toLowerCase();
   const galleryDomain = getGalleryDomain();
   const formDomain = String(process.env.FORM_DOMAIN || '').trim().toLowerCase();
@@ -1494,7 +1503,7 @@ app.get('/', (req, res) => {
       `,
     }));
   }
-  if (hasValidPanelCredentials(req)) return res.redirect('/painel');
+  if (await hasValidPanelCredentials(req)) return res.redirect('/painel');
   return res.send(renderSystemHomePage({
     error: req.query.erro ? decodeURIComponent(req.query.erro) : '',
     info: req.query.info ? decodeURIComponent(req.query.info) : '',
@@ -1582,15 +1591,18 @@ app.post('/recuperar-acesso', async (req, res) => {
   if (!pareceEmailValido(email)) {
     return res.status(400).send(renderRecoveryRequestPage({ error: 'Informe um e-mail válido.', email }));
   }
-  if (!recoveryEmail || email !== recoveryEmail) {
-    return res.send(renderRecoveryRequestPage({ ok: 'Se o e-mail informado estiver cadastrado, você receberá um link de recuperação.', email: '' }));
+  if (!recoveryEmail) {
+    return res.status(500).send(renderRecoveryRequestPage({ error: 'O e-mail de recuperação não está configurado na instalação.', email }));
+  }
+  if (email !== recoveryEmail) {
+    return res.status(400).send(renderRecoveryRequestPage({ error: 'O e-mail informado não é o e-mail cadastrado para recuperação.', email }));
   }
   try {
     const token = criarTokenRecuperacao();
-    const expiresAt = new Date(Date.now() + (30 * 60 * 1000)).toISOString();
+    const expiresAt = new Date(Date.now() + (5 * 60 * 1000)).toISOString();
     salvarRecuperacaoAtiva({ tokenHash: hashTokenRecuperacao(token), expiresAt, requestedAt: new Date().toISOString() });
     await enviarEmailRecuperacao({ to: recoveryEmail, link: recoveryLink(req, token) });
-    return res.send(renderRecoveryRequestPage({ ok: 'Se o e-mail informado estiver cadastrado, você receberá um link de recuperação.', email: '' }));
+    return res.send(renderRecoveryRequestPage({ ok: 'E-mail de recuperação enviado com sucesso.', email: '' }));
   } catch (error) {
     console.error('ERRO RECUPERACAO EMAIL', error);
     return res.status(500).send(renderRecoveryRequestPage({ error: error.message || 'Não foi possível enviar o e-mail de recuperação.', email }));
@@ -2148,13 +2160,14 @@ app.get('/painel/backup-restaurar', auth, async (req, res) => {
 
 app.post('/painel/backup-restaurar/backup-imoveis', auth, async (req, res) => {
   if (!validarSenhaPainel(req.body.senha)) return res.status(403).send('Senha inválida');
+  const senhaQuery = `senha=${encodeURIComponent(req.body.senha || '')}`;
   execFile(path.join(__dirname, '..', 'scripts', 'backup-imoveis.sh'), [], { cwd: path.join(__dirname, '..') }, (error, stdout, stderr) => {
     if (error) {
-      return res.redirect(`/painel/backup-restaurar?erro=${encodeURIComponent(stderr || error.message)}`);
+      return res.redirect(`/painel/backup-restaurar?${senhaQuery}&erro=${encodeURIComponent(stderr || error.message)}`);
     }
     const lines = String(stdout || '').trim().split('\n').filter(Boolean);
     const output = lines.length ? lines[lines.length - 1] : 'Backup de imóveis criado com sucesso.';
-    return res.redirect(`/painel/backup-restaurar?ok=${encodeURIComponent(output)}`);
+    return res.redirect(`/painel/backup-restaurar?${senhaQuery}&ok=${encodeURIComponent(output)}`);
   });
 });
 
@@ -2167,13 +2180,14 @@ app.get('/painel/backup-restaurar/download-imoveis/:file', auth, async (req, res
 
 app.post('/painel/backup-restaurar/backup-clientes', auth, async (req, res) => {
   if (!validarSenhaPainel(req.body.senha)) return res.status(403).send('Senha inválida');
+  const senhaQuery = `senha=${encodeURIComponent(req.body.senha || '')}`;
   execFile(path.join(__dirname, '..', 'scripts', 'backup-clientes.sh'), [], { cwd: path.join(__dirname, '..') }, (error, stdout, stderr) => {
     if (error) {
-      return res.redirect(`/painel/backup-restaurar?erro=${encodeURIComponent(stderr || error.message)}`);
+      return res.redirect(`/painel/backup-restaurar?${senhaQuery}&erro=${encodeURIComponent(stderr || error.message)}`);
     }
     const lines = String(stdout || '').trim().split('\n').filter(Boolean);
     const output = lines.length ? lines[lines.length - 1] : 'Backup de clientes criado com sucesso.';
-    return res.redirect(`/painel/backup-restaurar?ok=${encodeURIComponent(output)}`);
+    return res.redirect(`/painel/backup-restaurar?${senhaQuery}&ok=${encodeURIComponent(output)}`);
   });
 });
 
@@ -2186,13 +2200,14 @@ app.get('/painel/backup-restaurar/download-clientes/:file', auth, async (req, re
 
 app.post('/painel/backup-restaurar/backup-funcionarios', auth, async (req, res) => {
   if (!validarSenhaPainel(req.body.senha)) return res.status(403).send('Senha inválida');
+  const senhaQuery = `senha=${encodeURIComponent(req.body.senha || '')}`;
   execFile(path.join(__dirname, '..', 'scripts', 'backup-funcionarios.sh'), [], { cwd: path.join(__dirname, '..') }, (error, stdout, stderr) => {
     if (error) {
-      return res.redirect(`/painel/backup-restaurar?erro=${encodeURIComponent(stderr || error.message)}`);
+      return res.redirect(`/painel/backup-restaurar?${senhaQuery}&erro=${encodeURIComponent(stderr || error.message)}`);
     }
     const lines = String(stdout || '').trim().split('\n').filter(Boolean);
     const output = lines.length ? lines[lines.length - 1] : 'Backup de funcionários criado com sucesso.';
-    return res.redirect(`/painel/backup-restaurar?ok=${encodeURIComponent(output)}`);
+    return res.redirect(`/painel/backup-restaurar?${senhaQuery}&ok=${encodeURIComponent(output)}`);
   });
 });
 
@@ -2205,43 +2220,46 @@ app.get('/painel/backup-restaurar/download-funcionarios/:file', auth, async (req
 
 app.post('/painel/backup-restaurar/restore-imoveis-upload', auth, upload.single('backupFile'), async (req, res) => {
   if (!validarSenhaPainel(req.body.senha)) return res.status(403).send('Senha inválida');
-  if (!req.file) return res.redirect(`/painel/backup-restaurar?erro=${encodeURIComponent('Envie um arquivo de backup de imóveis.')}`);
+  const senhaQuery = `senha=${encodeURIComponent(req.body.senha || '')}`;
+  if (!req.file) return res.redirect(`/painel/backup-restaurar?${senhaQuery}&erro=${encodeURIComponent('Envie um arquivo de backup de imóveis.')}`);
   execFile(path.join(__dirname, '..', 'scripts', 'restore-imoveis.sh'), [req.file.path], { cwd: path.join(__dirname, '..') }, (error, stdout, stderr) => {
     try { if (req.file?.path && fs.existsSync(req.file.path)) fs.rmSync(req.file.path, { force: true }); } catch {}
     if (error) {
-      return res.redirect(`/painel/backup-restaurar?erro=${encodeURIComponent(stderr || error.message)}`);
+      return res.redirect(`/painel/backup-restaurar?${senhaQuery}&erro=${encodeURIComponent(stderr || error.message)}`);
     }
     const lines = String(stdout || '').trim().split('\n').filter(Boolean);
     const output = lines.length ? lines[lines.length - 1] : 'Restore de imóveis concluído com sucesso.';
-    return res.redirect(`/painel/backup-restaurar?ok=${encodeURIComponent(output)}`);
+    return res.redirect(`/painel/backup-restaurar?${senhaQuery}&ok=${encodeURIComponent(output)}`);
   });
 });
 
 app.post('/painel/backup-restaurar/restore-clientes-upload', auth, upload.single('backupFile'), async (req, res) => {
   if (!validarSenhaPainel(req.body.senha)) return res.status(403).send('Senha inválida');
-  if (!req.file) return res.redirect(`/painel/backup-restaurar?erro=${encodeURIComponent('Envie um arquivo de backup de clientes.')}`);
+  const senhaQuery = `senha=${encodeURIComponent(req.body.senha || '')}`;
+  if (!req.file) return res.redirect(`/painel/backup-restaurar?${senhaQuery}&erro=${encodeURIComponent('Envie um arquivo de backup de clientes.')}`);
   execFile(path.join(__dirname, '..', 'scripts', 'restore-clientes.sh'), [req.file.path], { cwd: path.join(__dirname, '..') }, (error, stdout, stderr) => {
     try { if (req.file?.path && fs.existsSync(req.file.path)) fs.rmSync(req.file.path, { force: true }); } catch {}
     if (error) {
-      return res.redirect(`/painel/backup-restaurar?erro=${encodeURIComponent(stderr || error.message)}`);
+      return res.redirect(`/painel/backup-restaurar?${senhaQuery}&erro=${encodeURIComponent(stderr || error.message)}`);
     }
     const lines = String(stdout || '').trim().split('\n').filter(Boolean);
     const output = lines.length ? lines[lines.length - 1] : 'Restore de clientes concluído com sucesso.';
-    return res.redirect(`/painel/backup-restaurar?ok=${encodeURIComponent(output)}`);
+    return res.redirect(`/painel/backup-restaurar?${senhaQuery}&ok=${encodeURIComponent(output)}`);
   });
 });
 
 app.post('/painel/backup-restaurar/restore-funcionarios-upload', auth, upload.single('backupFile'), async (req, res) => {
   if (!validarSenhaPainel(req.body.senha)) return res.status(403).send('Senha inválida');
-  if (!req.file) return res.redirect(`/painel/backup-restaurar?erro=${encodeURIComponent('Envie um arquivo de backup de funcionários.')}`);
+  const senhaQuery = `senha=${encodeURIComponent(req.body.senha || '')}`;
+  if (!req.file) return res.redirect(`/painel/backup-restaurar?${senhaQuery}&erro=${encodeURIComponent('Envie um arquivo de backup de funcionários.')}`);
   execFile(path.join(__dirname, '..', 'scripts', 'restore-funcionarios.sh'), [req.file.path], { cwd: path.join(__dirname, '..') }, (error, stdout, stderr) => {
     try { if (req.file?.path && fs.existsSync(req.file.path)) fs.rmSync(req.file.path, { force: true }); } catch {}
     if (error) {
-      return res.redirect(`/painel/backup-restaurar?erro=${encodeURIComponent(stderr || error.message)}`);
+      return res.redirect(`/painel/backup-restaurar?${senhaQuery}&erro=${encodeURIComponent(stderr || error.message)}`);
     }
     const lines = String(stdout || '').trim().split('\n').filter(Boolean);
     const output = lines.length ? lines[lines.length - 1] : 'Restore de funcionários concluído com sucesso.';
-    return res.redirect(`/painel/backup-restaurar?ok=${encodeURIComponent(output)}`);
+    return res.redirect(`/painel/backup-restaurar?${senhaQuery}&ok=${encodeURIComponent(output)}`);
   });
 });
 
@@ -2506,7 +2524,8 @@ app.get('/painel/manutencao/historico', auth, async (req, res) => {
     title: 'Histórico de manutenção',
     active: 'manutencao',
     content: `
-      ${renderFormError(erro || ok)}
+      ${erro ? renderFormError(erro) : ''}
+      ${ok ? `<div class="card" style="border:2px solid #16a34a;background:#f0fdf4;color:#166534;font-weight:700;">${esc(ok)}</div>` : ''}
       <section class="card">
         <div class="filters-actions" style="justify-content:space-between;align-items:center;">
           <div>
@@ -3554,7 +3573,6 @@ app.get('/painel/funcionarios/novo', auth, async (req, res) => {
     pool.query('SELECT id, nome FROM cargos_funcionario WHERE ativo IS TRUE ORDER BY nome'),
     gerarCodigoFuncionario(pool, { lock: false }),
   ]);
-  const linkFormularioPreview = renderFuncionarioLinkFormulario(codigoPreview, req);
   res.send(shell({
     title: 'Cadastrar funcionário',
     active: 'novo-funcionario',
@@ -3565,7 +3583,6 @@ app.get('/painel/funcionarios/novo', auth, async (req, res) => {
           <input type="hidden" name="senha" value="" />
           <div class="grid">
             <div><label>Código</label><input value="${esc(codigoPreview)}" readonly /></div>
-            ${linkFormularioPreview}
             <div><label>Nome ${missingField === 'nome' ? '<span class="field-error-marker">*</span>' : ''}</label><input name="nome" value="${esc(v.nome)}" class="${fieldErrorClass('nome', missingField)}" required /></div>
             <div><label>Sobrenome ${missingField === 'sobrenome' ? '<span class="field-error-marker">*</span>' : ''}</label><input name="sobrenome" value="${esc(v.sobrenome)}" class="${fieldErrorClass('sobrenome', missingField)}" required /></div>
             <div><label>Telefone ${missingField === 'telefone' ? '<span class="field-error-marker">*</span>' : ''}</label><input name="telefone" value="${v.telefone ? esc(formatarTelefone(v.telefone)) : ''}" class="${fieldErrorClass('telefone', missingField)}" placeholder="(51) 98035-7562" inputmode="numeric" oninput="let v=this.value.replace(/[^0-9]/g,'').slice(0,11);this.value=v.length>10?('('+v.slice(0,2)+') '+v.slice(2,7)+(v.length>7?'-'+v.slice(7):'')):v.length>6?('('+v.slice(0,2)+') '+v.slice(2,6)+(v.length>6?'-'+v.slice(6):'')):v.length>2?('('+v.slice(0,2)+') '+v.slice(2)):v;" required /></div>
@@ -3573,7 +3590,6 @@ app.get('/painel/funcionarios/novo', auth, async (req, res) => {
             <div class="field-full"><label>Endereço</label><input name="endereco" value="${esc(v.endereco)}" /></div>
             <div><label>Cargo ${missingField === 'cargo_id' ? '<span class="field-error-marker">*</span>' : ''}</label><select name="cargo_id" class="${fieldErrorClass('cargo_id', missingField)}" required><option value="">Selecione</option>${cargos.rows.map((cargo) => `<option value="${cargo.id}" ${v.cargo_id === cargo.id ? 'selected' : ''}>${esc(cargo.nome)}</option>`).join('')}</select></div>
             <div style="display:flex;align-items:end;"><a class="btn-link" href="/painel/funcionarios/cargos">Novo cargo</a></div>
-            <div class="field-full"><small class="muted">Login automático do funcionário: usuário <strong>${esc(item.codigo)}</strong> e senha inicial <strong>${esc(senhaInicialFuncionario(item.codigo))}</strong>. No primeiro acesso ele será obrigado a trocar a senha.</small></div>
           </div>
           <div class="filters-actions">
             <button type="submit">Salvar cadastro</button>
@@ -3581,20 +3597,6 @@ app.get('/painel/funcionarios/novo', auth, async (req, res) => {
           </div>
         </form>
       </section>
-      <script>
-        function copiarLinkFuncionario(id) {
-          const input = document.getElementById(id);
-          if (!input) return;
-          input.select();
-          input.setSelectionRange(0, input.value.length);
-          navigator.clipboard.writeText(input.value).then(() => {
-            window.alert('Link copiado para a área de transferência.');
-          }).catch(() => {
-            document.execCommand('copy');
-            window.alert('Link copiado para a área de transferência.');
-          });
-        }
-      </script>
     `,
   }));
 });
@@ -3682,7 +3684,7 @@ app.get('/painel/funcionarios/pesquisar', auth, async (req, res) => {
       <div class="card" style="margin-top:16px;padding:14px;">
         <strong>Acesso do funcionário</strong>
         <p style="margin:10px 0 0;"><strong>Usuário:</strong> ${esc(item.codigo)}</p>
-        <p style="margin:6px 0 0;">Senha inicial automática: <strong>${esc(senhaInicialFuncionario(item.codigo))}</strong></p>
+        <p style="margin:6px 0 0;">Se usuário esquecer a senha, use <strong>Resetar senha de login</strong> para gerar uma nova temporária.</p>
       </div>
       <div class="result-actions">
         <form method="post" action="/painel/funcionarios-editar-senha/${item.id}" class="inline-form" onsubmit="return confirmarSenhaAcaoFuncionario(event, 'editar')">
@@ -3705,6 +3707,8 @@ app.get('/painel/funcionarios/pesquisar', auth, async (req, res) => {
     subtitle: 'Busca por nome, telefone e cargo.',
     active: 'funcionarios',
     content: `
+      ${erro ? renderFormError(erro) : ''}
+      ${ok ? `<div class="card" style="border:2px solid #16a34a;background:#f0fdf4;color:#166534;font-weight:700;">${esc(ok)}</div>` : ''}
       <section class="card">
         <form method="get" action="/painel/funcionarios/pesquisar">
           <div class="grid grid-3">

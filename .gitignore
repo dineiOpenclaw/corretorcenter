@@ -13,3 +13,5 @@ storage/
 .maintenance-history.json
 .update-detected-changes.txt
 .update-manifest.json
+
+backup_funcionarios/
