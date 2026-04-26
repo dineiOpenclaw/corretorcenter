@@ -37,6 +37,7 @@ Revisar no mínimo:
 - domínios, com padrão `*1.codeflowsoluctions.com` nesta VPS
 - credenciais do banco
 - usuário/senha do painel
+- e-mail de recuperação e credenciais SMTP reais
 - nome interno e nome público do sistema
 
 ### 5. Rodar o assistente inicial
@@ -45,14 +46,16 @@ Revisar no mínimo:
 ./scripts/install-wizard.sh
 ```
 
-O assistente já verifica se o ambiente tem os comandos principais antes de seguir.
-Se `psql` ou `postgresql.service` estiverem faltando, ele instala PostgreSQL localmente e sobe o serviço antes da migration base.
+O assistente já verifica se o ambiente tem os comandos principais antes de seguir, aplica todas as migrations atuais (incluindo funcionários/login), bloqueia instalação com SMTP placeholder e deixa o provisionamento do PostgreSQL centralizado no `bootstrap.sh` para evitar conflitos/locks no fluxo automático.
+Se `psql` ou `postgresql.service` estiverem faltando, o bootstrap instala PostgreSQL localmente e sobe o serviço antes da migration base.
 
 Se preferir, ainda é possível usar diretamente:
 
 ```bash
 ./scripts/bootstrap.sh
 ```
+
+O `configure-env.sh` agora também coleta o SMTP real para que a recuperação de acesso saia funcional já na entrega.
 
 ### 6. Se quiser categorias iniciais padrão
 

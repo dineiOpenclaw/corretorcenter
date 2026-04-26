@@ -113,6 +113,15 @@ require_env_keys() {
   fi
 }
 
+fail_if_placeholder_env() {
+  local key="$1" current="$2" placeholder="$3"
+  if [[ "$current" == "$placeholder" ]]; then
+    echo "A variável $key ainda está com valor de exemplo no .env. Ajuste antes de continuar." >&2
+    echo "Rode: ./scripts/configure-env.sh" >&2
+    exit 1
+  fi
+}
+
 prepare_service_file() {
   [[ -f "$SERVICE_TEMPLATE" ]] || return 1
   local workdir="$ROOT_DIR"
@@ -160,14 +169,17 @@ main() {
     exit 1
   fi
 
-  require_env_keys PANEL_DOMAIN FORM_DOMAIN GALLERY_DOMAIN IMAGES_DOMAIN PANEL_ADMIN_USER PANEL_ADMIN_PASSWORD PANEL_RECOVERY_EMAIL
+  require_env_keys PANEL_DOMAIN FORM_DOMAIN GALLERY_DOMAIN IMAGES_DOMAIN PANEL_ADMIN_USER PANEL_ADMIN_PASSWORD PANEL_RECOVERY_EMAIL SMTP_HOST SMTP_PORT SMTP_SECURE SMTP_USER SMTP_PASSWORD SMTP_FROM
+
+  fail_if_placeholder_env SMTP_HOST "$(read_env_value SMTP_HOST "$ENV_FILE" 2>/dev/null || true)" "smtp.seudominio.com"
+  fail_if_placeholder_env SMTP_PASSWORD "$(read_env_value SMTP_PASSWORD "$ENV_FILE" 2>/dev/null || true)" "senha-do-smtp"
+  fail_if_placeholder_env PANEL_RECOVERY_EMAIL "$(read_env_value PANEL_RECOVERY_EMAIL "$ENV_FILE" 2>/dev/null || true)" "recuperacao@seudominio.com"
 
   log "Garantindo dependências"
   ensure_cmd git git >/dev/null 2>&1 || true
   ensure_cmd curl curl >/dev/null 2>&1
   ensure_cmd node nodejs >/dev/null 2>&1
   ensure_cmd npm npm >/dev/null 2>&1
-  ensure_postgres
   ensure_pdf_engine
 
   log "Executando bootstrap base"

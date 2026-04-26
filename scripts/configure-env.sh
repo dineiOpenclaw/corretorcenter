@@ -107,6 +107,49 @@ main() {
     echo "E-mail inválido. Informe um endereço real para recuperação de acesso." >&2
   done
 
+  while true; do
+    read -r -p "Servidor SMTP (ex.: smtp.gmail.com): " SMTP_HOST
+    SMTP_HOST="${SMTP_HOST,,}"
+    [[ -n "$SMTP_HOST" ]] && break
+    echo "Servidor SMTP não pode ficar vazio." >&2
+  done
+
+  while true; do
+    read -r -p "Porta SMTP (ex.: 465 ou 587): " SMTP_PORT
+    SMTP_PORT="${SMTP_PORT:-}"
+    [[ "$SMTP_PORT" =~ ^[0-9]{2,5}$ ]] && break
+    echo "Porta SMTP inválida." >&2
+  done
+
+  while true; do
+    read -r -p "SMTP seguro? (true/false): " SMTP_SECURE
+    SMTP_SECURE="${SMTP_SECURE,,}"
+    [[ "$SMTP_SECURE" == "true" || "$SMTP_SECURE" == "false" ]] && break
+    echo "Informe true ou false." >&2
+  done
+
+  while true; do
+    read -r -p "Usuário SMTP: " SMTP_USER
+    SMTP_USER="${SMTP_USER:-}"
+    [[ -n "$SMTP_USER" ]] && break
+    echo "Usuário SMTP não pode ficar vazio." >&2
+  done
+
+  while true; do
+    read -r -s -p "Senha SMTP [oculta]: " SMTP_PASSWORD
+    echo ""
+    SMTP_PASSWORD="${SMTP_PASSWORD:-}"
+    [[ -n "$SMTP_PASSWORD" ]] && break
+    echo "Senha SMTP não pode ficar vazia." >&2
+  done
+
+  while true; do
+    read -r -p "E-mail remetente SMTP (enter para usar o usuário SMTP): " SMTP_FROM
+    SMTP_FROM="${SMTP_FROM:-$SMTP_USER}"
+    validate_email "$SMTP_FROM" && break
+    echo "E-mail remetente inválido." >&2
+  done
+
   log "Atualizando .env"
   set_env_value PANEL_DOMAIN "$PANEL_DOMAIN" "$ENV_FILE"
   set_env_value FORM_DOMAIN "$FORM_DOMAIN" "$ENV_FILE"
@@ -115,6 +158,12 @@ main() {
   set_env_value PANEL_ADMIN_USER "$PANEL_ADMIN_USER" "$ENV_FILE"
   set_env_value PANEL_ADMIN_PASSWORD "$PANEL_ADMIN_PASSWORD" "$ENV_FILE"
   set_env_value PANEL_RECOVERY_EMAIL "$PANEL_RECOVERY_EMAIL" "$ENV_FILE"
+  set_env_value SMTP_HOST "$SMTP_HOST" "$ENV_FILE"
+  set_env_value SMTP_PORT "$SMTP_PORT" "$ENV_FILE"
+  set_env_value SMTP_SECURE "$SMTP_SECURE" "$ENV_FILE"
+  set_env_value SMTP_USER "$SMTP_USER" "$ENV_FILE"
+  set_env_value SMTP_PASSWORD "$SMTP_PASSWORD" "$ENV_FILE"
+  set_env_value SMTP_FROM "$SMTP_FROM" "$ENV_FILE"
 
   log "Concluído. Próximo passo: ./scripts/install-wizard.sh"
 }

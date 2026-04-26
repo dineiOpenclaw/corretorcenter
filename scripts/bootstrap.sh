@@ -87,13 +87,14 @@ postgres_access_ok() {
 }
 
 ensure_postgres_ready() {
-  if command -v psql >/dev/null 2>&1 && systemctl list-unit-files 2>/dev/null | grep -q '^postgresql\.service'; then
-    if systemctl is-active --quiet postgresql; then
+  if command -v psql >/dev/null 2>&1; then
+    if systemctl cat postgresql >/dev/null 2>&1 || systemctl status postgresql >/dev/null 2>&1; then
+      if ! systemctl is-active --quiet postgresql; then
+        log "PostgreSQL encontrado, mas parado. Iniciando serviço"
+        run_privileged systemctl enable --now postgresql
+      fi
       postgres_access_ok && return 0
     fi
-    log "PostgreSQL encontrado, mas parado. Iniciando serviço"
-    run_privileged systemctl enable --now postgresql
-    postgres_access_ok && return 0
   fi
 
   log "PostgreSQL não encontrado por completo. Instalando automaticamente"
