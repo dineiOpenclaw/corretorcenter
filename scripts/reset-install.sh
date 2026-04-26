@@ -147,7 +147,7 @@ cleanup_caddy() {
       done
     fi
     if [[ "$should_remove" -eq 1 ]]; then
-      log "Removendo configuração do Caddy criada para o CorretorCenter"
+      log "Removendo configuração legada do Caddy criada para o CorretorCenter"
       run_privileged rm -f "$CADDY_FILE"
     else
       warn "Caddyfile não parece exclusivo do CorretorCenter. Mantendo arquivo para evitar apagar outro site."
@@ -156,29 +156,15 @@ cleanup_caddy() {
     log "Caddyfile não encontrado, pulando."
   fi
 
-  if exists_unit 'caddy.service'; then
-    log 'Parando caddy'
-    run_privileged systemctl stop caddy || true
-    run_privileged systemctl disable caddy || true
-  fi
-
-  remove_package_if_installed caddy
-  if exists_unit 'caddy.service'; then
-    log 'Removendo service do caddy'
-    run_privileged systemctl stop caddy || true
-    run_privileged systemctl disable caddy || true
-  fi
   if [[ -f /etc/systemd/system/caddy.service ]]; then
-    log 'Removendo unit custom do caddy'
+    log 'Removendo unit custom legada do caddy'
+    run_privileged systemctl stop caddy || true
+    run_privileged systemctl disable caddy || true
     run_privileged rm -f /etc/systemd/system/caddy.service
     run_privileged systemctl daemon-reload || true
+  else
+    log 'Sem unit custom legada do caddy, pulando limpeza do caddy.'
   fi
-  for path in /etc/caddy /var/lib/caddy; do
-    if [[ -e "$path" ]]; then
-      log "Removendo diretório do Caddy em $path"
-      run_privileged rm -rf "$path"
-    fi
-  done
 }
 
 cleanup_postgres() {
@@ -232,7 +218,16 @@ cleanup_runtime_packages() {
 cleanup_listening_ports() {
   # No fluxo de reinstalação limpa, encerramos processos que estiverem segurando portas públicas.
   # Isso evita falhas de proxy/SSL por conflito de porta.
-  local ports=(5180 80 81 443)
+  local env_file=""
+  for candidate in "$APP_DIR_DEFAULT/.env" "$APP_DIR_DEFAULT/.env.example"; do
+    [[ -f "$candidate" ]] || continue
+    env_file="$candidate"
+    break
+  done
+  local app_port
+  app_port="$(read_env_value APP_PORT "$env_file" 2>/dev/null || true)"
+  [[ -z "$app_port" ]] && app_port='5180'
+  local ports=("$app_port" 80 81 443)
   if command -v ss >/dev/null 2>&1; then
     for port in "${ports[@]}"; do
       local pids
