@@ -3049,13 +3049,14 @@ function pdfImageSrc(foto) {
 function renderPdfImovel({ item, fotos, tipo }) {
   const company = process.env.PANEL_TITLE || getAppDisplayName();
   const diferenciais = listaDiferenciais(item.diferenciais);
-  const imagens = fotos.length
-    ? fotos.map((foto) => {
-        const src = pdfImageSrc(foto);
-        if (!src) return '';
-        return `<div class="image-card"><img src="${esc(src)}" alt="${esc(item.codigo)}" /><span>${esc(foto.nome_arquivo)}</span></div>`;
-      }).filter(Boolean).join('')
-    : '<p class="muted">Nenhuma imagem cadastrada.</p>';
+  const linkGaleria = item.galeria_imagem || montarLinkGaleriaImovel(item.codigo);
+  const blocoGaleria = `
+    <div class="card">
+      <p>As imagens deste imóvel estão disponíveis na galeria pública abaixo.</p>
+      <p style="margin-top:10px;"><strong>Link da galeria pública:</strong><br /><a href="${esc(linkGaleria)}">${esc(linkGaleria)}</a></p>
+      ${fotos.length ? `<p class="muted" style="margin-top:10px;">Total de imagens cadastradas: ${fotos.length}</p>` : '<p class="muted" style="margin-top:10px;">Nenhuma imagem cadastrada.</p>'}
+    </div>
+  `;
 
   const detalhesComerciais = `
     <section class="section">
@@ -3136,8 +3137,8 @@ function renderPdfImovel({ item, fotos, tipo }) {
       <div class="card">${diferenciais.length ? `<ul class="list">${diferenciais.map((item) => `<li>${esc(item)}</li>`).join('')}</ul>` : '<p class="muted">Nenhum diferencial informado.</p>'}</div>
     </section>
     <section class="section">
-      <h2>Imagens</h2>
-      <div class="images">${imagens}</div>
+      <h2>Galeria pública de imagens</h2>
+      ${blocoGaleria}
     </section>
     <div class="footer">Documento gerado em ${new Date().toLocaleString('pt-BR')} pelo painel ${esc(company)}.</div>
   </body></html>`;
