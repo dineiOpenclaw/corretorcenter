@@ -2663,6 +2663,7 @@ app.get('/painel/configuracoes', auth, async (req, res) => {
       </section>
       <section class="card">
         <form method="post" action="/painel/configuracoes" enctype="multipart/form-data">
+          <input type="hidden" name="senha" value="${esc(req.query.senha || '')}" />
           <div class="search-blocks">
             <div class="search-block">
               <h3>Identidade</h3>
@@ -2746,18 +2747,20 @@ app.get('/painel/configuracoes', auth, async (req, res) => {
 });
 
 app.post('/painel/configuracoes', auth, upload.single('logo'), async (req, res) => {
+  if (!validarSenhaPainel(req.body.senha)) return res.redirect('/painel/configuracoes?erro=' + encodeURIComponent('Senha do painel inválida.'));
+  const senhaQuery = `senha=${encodeURIComponent(req.body.senha || '')}`;
   const b = configuracoesSistemaValores(req.body);
   if (!String(b.appName || '').trim()) {
-    return res.redirect(`/painel/configuracoes?erro=${encodeURIComponent('Informe o nome do sistema.')}`);
+    return res.redirect(`/painel/configuracoes?${senhaQuery}&erro=${encodeURIComponent('Informe o nome do sistema.')}`);
   }
   if (!String(b.panelTitle || '').trim()) {
-    return res.redirect(`/painel/configuracoes?erro=${encodeURIComponent('Informe o título do painel.')}`);
+    return res.redirect(`/painel/configuracoes?${senhaQuery}&erro=${encodeURIComponent('Informe o título do painel.')}`);
   }
   if (!String(b.panelAdminUser || '').trim()) {
-    return res.redirect(`/painel/configuracoes?erro=${encodeURIComponent('Informe o usuário do painel.')}`);
+    return res.redirect(`/painel/configuracoes?${senhaQuery}&erro=${encodeURIComponent('Informe o usuário do painel.')}`);
   }
   if (!pareceEmailValido(b.panelRecoveryEmail)) {
-    return res.redirect(`/painel/configuracoes?erro=${encodeURIComponent("Informe um e-mail de recuperação válido.")}`);
+    return res.redirect(`/painel/configuracoes?${senhaQuery}&erro=${encodeURIComponent("Informe um e-mail de recuperação válido.")}`);
   }
   const dominios = [
     ['Domínio do painel', b.panelDomain],
@@ -2768,11 +2771,11 @@ app.post('/painel/configuracoes', auth, upload.single('logo'), async (req, res) 
   for (const [label, value] of dominios) {
     const text = String(value || '').trim();
     if (text && !pareceDominio(text)) {
-      return res.redirect(`/painel/configuracoes?erro=${encodeURIComponent(`${label} inválido. Use um domínio como exemplo.com ou sub.exemplo.com`)}`);
+      return res.redirect(`/painel/configuracoes?${senhaQuery}&erro=${encodeURIComponent(`${label} inválido. Use um domínio como exemplo.com ou sub.exemplo.com`)}`);
     }
   }
   if (String(b.panelAdminPassword || '').trim() && String(b.panelAdminPassword).trim().length < 6) {
-    return res.redirect(`/painel/configuracoes?erro=${encodeURIComponent('A nova senha do painel deve ter pelo menos 6 caracteres.')}`);
+    return res.redirect(`/painel/configuracoes?${senhaQuery}&erro=${encodeURIComponent('A nova senha do painel deve ter pelo menos 6 caracteres.')}`);
   }
   const values = {
     APP_NAME: b.appName,
@@ -2814,7 +2817,7 @@ app.post('/painel/configuracoes', auth, upload.single('logo'), async (req, res) 
     fs.renameSync(req.file.path, path.join(publicDir, `logo${finalExt}`));
   }
 
-  return res.redirect('/painel/configuracoes?ok=1');
+  return res.redirect(`/painel/configuracoes?${senhaQuery}&ok=1`);
 });
 
 app.get('/painel/oportunidades', auth, async (req, res) => {
