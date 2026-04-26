@@ -180,7 +180,7 @@ function getPublicLeadFallbackName() {
 }
 
 function getPublicGalleryHomeTitle() {
-  return process.env.PUBLIC_GALLERY_HOME_TITLE || 'Galeria pública de imóveis';
+  return process.env.PUBLIC_GALLERY_HOME_TITLE || 'Galeria de imagens';
 }
 
 function getPublicGalleryHomeSubtitle() {
@@ -188,7 +188,7 @@ function getPublicGalleryHomeSubtitle() {
 }
 
 function getPublicFormTitle() {
-  return process.env.PUBLIC_FORM_TITLE || 'Formulário de interesse';
+  return process.env.PUBLIC_FORM_TITLE || 'Formulário';
 }
 
 function getPublicFormSubtitle() {
@@ -228,12 +228,12 @@ function getPublicFormNoMatchMessage() {
 
 function themeVarsCss() {
   const vars = {
-    '--theme-header-bg': process.env.THEME_HEADER_BG || '#111827',
-    '--theme-header-text': process.env.THEME_HEADER_TEXT || '#ffffff',
+    '--theme-header-bg': process.env.THEME_HEADER_BG || '#ffffff',
+    '--theme-header-text': process.env.THEME_HEADER_TEXT || '#000000af',
     '--theme-header-border': process.env.THEME_HEADER_BORDER || '#d4af37',
-    '--theme-brand-highlight': process.env.THEME_BRAND_HIGHLIGHT || '#f4c542',
-    '--theme-brand-subtext': process.env.THEME_BRAND_SUBTEXT || '#d1d5db',
-    '--theme-menu-text': process.env.THEME_MENU_TEXT || '#ffffff',
+    '--theme-brand-highlight': process.env.THEME_BRAND_HIGHLIGHT || '#0059ffba',
+    '--theme-brand-subtext': process.env.THEME_BRAND_SUBTEXT || '#000000af',
+    '--theme-menu-text': process.env.THEME_MENU_TEXT || '#000000af',
     '--theme-page-title': process.env.THEME_PAGE_TITLE || '#111827',
     '--theme-page-subtitle': process.env.THEME_PAGE_SUBTITLE || '#6b7280',
     '--theme-menu-border': process.env.THEME_MENU_BORDER || 'rgba(255,255,255,.14)',
@@ -255,7 +255,7 @@ function getPdfTheme() {
 }
 
 function getBasicAuthRealm() {
-  return process.env.PANEL_AUTH_REALM || process.env.APP_NAME || 'Painel Imobiliário';
+  return process.env.PANEL_AUTH_REALM || process.env.APP_NAME || 'Corretor Center';
 }
 
 function getAuditActor() {
@@ -2687,11 +2687,11 @@ app.get('/painel/configuracoes', auth, async (req, res) => {
             <div class="search-block">
               <h3>Cores principais</h3>
               <div class="grid-2">
-                <div><label>Fundo do cabeçalho</label><input name="themeHeaderBg" value="${esc(v.themeHeaderBg)}" placeholder="#111827" /></div>
-                <div><label>Texto geral do cabeçalho</label><input name="themeHeaderText" value="${esc(v.themeHeaderText)}" placeholder="#ffffff" /></div>
-                <div><label>Nome da empresa</label><input name="themeBrandHighlight" value="${esc(v.themeBrandHighlight)}" placeholder="#f4c542" /></div>
-                <div><label>Nome da pagina atual</label><input name="themeBrandSubtext" value="${esc(v.themeBrandSubtext)}" placeholder="#d1d5db" /></div>
-                <div><label>Texto do menu</label><input name="themeMenuText" value="${esc(v.themeMenuText)}" placeholder="#ffffff" /></div>
+                <div><label>Fundo do cabeçalho</label><input name="themeHeaderBg" value="${esc(v.themeHeaderBg)}" placeholder="#ffffff" /></div>
+                <div><label>Texto geral do cabeçalho</label><input name="themeHeaderText" value="${esc(v.themeHeaderText)}" placeholder="#000000af" /></div>
+                <div><label>Nome da empresa</label><input name="themeBrandHighlight" value="${esc(v.themeBrandHighlight)}" placeholder="#0059ffba" /></div>
+                <div><label>Nome da pagina atual</label><input name="themeBrandSubtext" value="${esc(v.themeBrandSubtext)}" placeholder="#000000af" /></div>
+                <div><label>Texto do menu</label><input name="themeMenuText" value="${esc(v.themeMenuText)}" placeholder="#000000af" /></div>
                 <div><label>Título da página</label><input name="themePageTitle" value="${esc(v.themePageTitle)}" placeholder="#111827" /></div>
                 <div><label>Subtítulo da página</label><input name="themePageSubtitle" value="${esc(v.themePageSubtitle)}" placeholder="#6b7280" /></div>
                 <div><label>Fundo do menu ativo</label><input name="themeMenuActiveBg" value="${esc(v.themeMenuActiveBg)}" placeholder="#d4af37" /></div>
